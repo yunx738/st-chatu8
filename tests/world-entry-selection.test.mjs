@@ -1,4 +1,5 @@
 // Added by Codex for yunx738, 2026-09-13. AFPL; see ../LICENSE.
+// Organized by Codex for yunx738, 2026-09-13: restore the intended tests/ location.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
