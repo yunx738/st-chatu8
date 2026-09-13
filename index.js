@@ -3,6 +3,7 @@
  * st-chatu8 (智绘姬) - SillyTavern 文生图扩展
  * Copyright (C) 从前跟你一样 (github.com/damoshen123)
  * 修改：Codex（为 yunx738），2026-09-13；修复 ACU 条目重建后的开关与绑定错位。
+ * 整理：Codex（为 yunx738），2026-09-13；更新检查与重装指向此 fork。
  *
  * 【授权声明】
  * 本程序依据 Aladdin Free Public License (AFPL) 第 9 版授权，
@@ -82931,7 +82932,7 @@ async function checkForUpdates() {
   const updateStatusElement = document.getElementById("ch-update-status");
   console.log("Checking for updates...");
   try {
-    const remoteManifestUrl = `https://raw.githubusercontent.com/damoshen123/st-chatu8/master/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
+    const remoteManifestUrl = `https://raw.githubusercontent.com/yunx738/st-chatu8/main/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
     const response = await fetch(remoteManifestUrl, { cache: "no-cache" });
     if (!response.ok) {
       console.error("Failed to fetch remote manifest for update check.");
@@ -107507,7 +107508,7 @@ function setUpdateStatus(text, cls) {
     el.className = `st-chatu8-update-status ${cls || ""}`.trim();
   }
 }
-var REINSTALL_GIT_URL = "https://github.com/damoshen123/st-chatu8.git";
+var REINSTALL_GIT_URL = "https://github.com/yunx738/st-chatu8.git";
 function showReinstallGuide(reason) {
   const existing = document.getElementById("st-chatu8-reinstall-guide");
   if (existing) existing.remove();
@@ -107756,7 +107757,7 @@ async function checkForUpdates2() {
   const updateNotesElement = document.getElementById("ch-update-notes");
   console.log("Checking for updates...", updateNotesElement);
   try {
-    const remoteManifestUrl = `https://raw.githubusercontent.com/damoshen123/st-chatu8/master/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
+    const remoteManifestUrl = `https://raw.githubusercontent.com/yunx738/st-chatu8/main/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
     const response = await fetch(remoteManifestUrl, { cache: "no-cache" });
     if (!response.ok) {
       console.error("Failed to fetch remote manifest for update check.");
