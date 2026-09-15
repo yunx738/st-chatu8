@@ -1,7 +1,63 @@
 # SillyTavern 文生图 (st-chatu8)
 
-**作者:** 从前跟你一样
-**版本:** 1.0.0
+## ACU 条目绑定修复版
+
+此仓库是 [原作者项目](https://github.com/damoshen123/st-chatu8) 的个人 fork，基于上游 **3.0.7**。修复与目录整理由 Codex 协助 yunx738 完成（2026-09-13），沿用 [Aladdin Free Public License](LICENSE)。插件当前版本见 [manifest.json](manifest.json)。
+
+### 修复内容与适用范围
+
+ACU 更新表格时会删除并重建自定义世界书条目，原来的数字 UID 可能分配给其他条目，使「发送数据」里的 DNA 启用状态跟错目标。此版本在同一世界书内按 **ACU 条目的完整名称** 保存开关，并保留 `ACU-[聊天标识]-` 隔离前缀；资料库中的同类条目也使用这套规则。
+
+- 保存普通启用、强制启用、禁用和角色绑定；首次读取对应世界书时迁移旧 UID 配置。
+- 名称保持唯一且不变时，条目重建和 UID 改变不会把该选择转移给其他名称的条目。
+- 首次迁移核对后，没有历史选择记录的新名称条目默认禁用。
+- 普通世界书条目仍按 UID 保存；TavernDB 模板、世界书内容、表顺序、`depth`、`order` 和注入位置不变。
+
+**边界：** 当前修复按完整条目名称识别，尚未按人物名或关键词识别。如果名称仍是「表名-行号」，删除或移动行导致原编号换成另一个人物时，仍需重新核对。条目改名、同一世界书内出现同名 ACU 条目时，也需要重新选择；同名条目暂以 UID 区分。
+
+### 安装与首次使用
+
+本仓库的 `main` 已包含修复，从以下地址安装完整插件：
+
+```text
+https://github.com/yunx738/st-chatu8
+```
+
+已安装原作者版本时，先导出插件设置备份，再将安装来源切换到本仓库。仅手动覆盖 `index.js` 不够，还必须同时放入根目录的 `world-entry-selection.mjs`；仅覆盖文件也不会改变已有 Git 仓库的更新来源。
+
+首次使用请按以下顺序核对：
+
+1. 打开「发送数据」→「刷新世界书」。
+2. 检查「重要角色表」与「主角信息」对应的 DNA 条目，将需要的条目设为强制启用，并取消之前误启用的栏目。
+3. 点击「测试触发」，确认实际发送的是预期条目。
+4. 更新其他表格，再刷新并测试一次，确认 DNA 的选择保持一致。
+
+旧版本已经串位的选择无法仅凭旧 UID 自动还原，首次迁移后必须核对一次。本 fork 的更新检查、主页与失败重装地址均指向 `yunx738/st-chatu8`；安装来源也应是该仓库。
+
+### 四个修复文件的职责
+
+| 文件 | 用途 |
+| --- | --- |
+| [index.js](index.js) | 在条目读取、开关操作、预览、实际发送和资料库中接入新识别规则。 |
+| [world-entry-selection.mjs](world-entry-selection.mjs) | 生成选择键，处理同名条目和旧配置迁移；运行时必须与 `index.js` 同目录。 |
+| [tests/world-entry-selection.test.mjs](tests/world-entry-selection.test.mjs) | 回归测试；放在 `tests/` 下，使相对导入路径与测试命令一致。 |
+| [README.md](README.md) | 安装、首次核对、实现边界及验证说明。 |
+
+`manifest.json` 另负责插件入口、版本和本 fork 的主页信息。
+
+### 本地验证
+
+在仓库根目录运行，不需要安装额外 npm 依赖：
+
+```sh
+node --test tests/world-entry-selection.test.mjs
+```
+
+现有 10 项测试在 Node 环境中执行实际的条目读取、触发、保存和绑定函数，覆盖 UID 复用、条目重建空窗、配置重新加载、聊天隔离、同名条目和原有触发规则。它们没有启动完整浏览器界面，也不能替代在实际 SillyTavern 中点击刷新与发送的检查。
+
+## 原项目功能与使用说明
+
+**原作者:** 从前跟你一样
 
 这是一个为 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 设计的第三方扩展，它将强大的文生图功能无缝集成到您的聊天体验中。通过简单的标记，您可以在对话中直接调用 Stable Diffusion、NovelAI 或 ComfyUI，将文字描述变为生动的图像。
 
@@ -30,7 +86,7 @@
 
 1.  在 SillyTavern 的扩展菜单中，从以下 URL 安装插件：
     ```
-    https://github.com/damoshen123/st-chatu8
+    https://github.com/yunx738/st-chatu8
     ```
 2.  重启 SillyTavern。
 3.  在扩展菜单中启用 "st-chatu8"。
