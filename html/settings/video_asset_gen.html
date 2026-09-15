@@ -222,6 +222,67 @@
             </div>
         </div>
 
+        <!-- 图生图参考图附件区域（仅支持 OpenAI / Grok 渠道） -->
+        <div class="vag-img2img-card" id="vag-img2img-card">
+            <div class="vag-img2img-header">
+                <div class="vag-img2img-title">
+                    <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--st-chatu8-accent-primary, #6366f1);"></i>
+                    <span>图生图参考图</span>
+                    <span id="vag-img2img-badge" class="vag-badge">纯文生图</span>
+                    <span class="vag-badge" style="background: rgba(99, 102, 241, 0.15); color: var(--st-chatu8-accent-primary, #818cf8); font-size: 10.5px;">仅支持 OpenAI 渠道</span>
+                </div>
+                <div class="vag-img2img-actions">
+                    <button type="button" class="st-chatu8-btn st-chatu8-btn-sm" id="vag-btn-upload-img2img" title="上传本地图片作为图生图参考图">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
+                    </button>
+                    <button type="button" class="st-chatu8-btn st-chatu8-btn-sm" id="vag-btn-pick-img2img" title="从现有视频资产库中选取参考图">
+                        <i class="fa-solid fa-photo-film"></i> 资产库选取
+                    </button>
+                    <button type="button" class="st-chatu8-btn st-chatu8-btn-sm danger" id="vag-btn-clear-img2img" style="display: none;" title="清空参考图，切回文生图">
+                        <i class="fa-solid fa-trash-can"></i> 清空
+                    </button>
+                    <input type="file" id="vag-img2img-file-input" accept="image/*" style="display: none;">
+                </div>
+            </div>
+
+            <!-- 空状态：提示添加参考图 -->
+            <div id="vag-img2img-empty" class="vag-img2img-empty-box">
+                <div class="vag-img2img-empty-content">
+                    <i class="fa-regular fa-image" style="font-size: 20px; opacity: 0.6;"></i>
+                    <span style="font-size: 12px; opacity: 0.85;">暂未添加参考图 (默认文生图)。可点击上方按钮添加，或在此处直接按 <code>Ctrl+V</code> 粘贴截图</span>
+                </div>
+            </div>
+
+            <!-- 已添加状态：参考图预览卡片 -->
+            <div id="vag-img2img-preview-wrap" class="vag-img2img-preview-wrap" style="display: none;">
+                <div class="vag-img2img-thumb-box" id="vag-img2img-thumb-box" title="点击放大预览">
+                    <img id="vag-img2img-thumb" src="" alt="图生图参考图" class="vag-img2img-thumb-img">
+                    <div class="vag-img2img-thumb-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i></div>
+                </div>
+                <div class="vag-img2img-meta">
+                    <div class="vag-img2img-meta-title" id="vag-img2img-name">参考图.png</div>
+                    <div class="vag-img2img-meta-desc">
+                        <i class="fa-solid fa-circle-check" style="color: #10b981;"></i>
+                        <span>已启用图生图：生成时将携带此图提交至 OpenAI /v1/images/edits 接口</span>
+                    </div>
+                </div>
+                <div class="vag-img2img-item-actions">
+                    <button type="button" class="st-chatu8-btn st-chatu8-btn-sm" id="vag-btn-change-img2img" title="更换参考图">
+                        <i class="fa-solid fa-rotate"></i> 更换
+                    </button>
+                    <button type="button" class="st-chatu8-btn st-chatu8-btn-sm danger" id="vag-btn-remove-img2img" title="移除参考图">
+                        <i class="fa-solid fa-xmark"></i> 移除
+                    </button>
+                </div>
+            </div>
+
+            <!-- 非 OpenAI 渠道友好提示 -->
+            <div id="vag-img2img-channel-hint" class="vag-img2img-channel-hint" style="display: none;">
+                <i class="fa-solid fa-circle-exclamation" style="color: #f59e0b;"></i>
+                <span>当前插件生图渠道非 OpenAI (Banana)，图生图参考图仅在 OpenAI / Grok 渠道下生效。</span>
+            </div>
+        </div>
+
         <!-- 生图结果展示卡片 (生图成功后展示) -->
         <div id="vag-image-result-card" class="vag-image-result-card" style="display: none;">
             <div class="vag-image-result-thumb-wrap" id="vag-result-thumb-wrap" title="点击放大查看原图">
