@@ -1,0 +1,44 @@
+name: Validate RunningHub repair
+on:
+  push:
+    branches: [fix/runninghub-cloud-validation]
+    paths: [.github/workflows/rh-build.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply guarded integration patch
+        run: node tools/apply-runninghub-workflow.cjs
+      - name: Check full bundle syntax and patch formatting
+        run: |
+          node --input-type=module --check < index.js
+          node --check runninghub-workflow.mjs
+          git diff --check
+      - name: Test logic and actual production submission paths
+        run: |
+          set -o pipefail
+          node --test tests/runninghub-workflow.test.mjs tests/runninghub-integration.test.mjs | tee runninghub-tests.tap
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runninghub-validation
+          path: |
+            index.js
+            runninghub-workflow.mjs
+            tests/runninghub-*.test.mjs
+            runninghub-tests.tap
+          retention-days: 7
+      - name: Commit validated source to repair branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.js
+          git commit -m 'fix: integrate cloud validation in all RunningHub entry points'
+          git push origin HEAD:fix/runninghub-cloud-validation
