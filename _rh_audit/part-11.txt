@@ -1,0 +1,180 @@
+    }
+    if (String(settings3.convertToJpegStorage) === "true" && !isVideo) {
+      finalImageData = await convertImageToJpeg(finalImageData);
+    }
+    const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+    taskQueue.completeTask(taskId, true);
+    const rhDetailParts = [];
+    if (rhTaskCostTime != null) rhDetailParts.push(`RH\u6D88\u8017\u65F6\u95F4: ${rhTaskCostTime}\u79D2`);
+    if (rhConsumeCoins != null) rhDetailParts.push(`\u6D88\u8017RH\u70B9\u6570: ${rhConsumeCoins}`);
+    const rhDetailText = rhDetailParts.length > 0 ? ` (${rhDetailParts.join(", ")})` : "";
+    if (!isPluginToastDisabled()) {
+      toastr.success(`\u2705 ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2${rhDetailText}`);
+    }
+    addLog(`[RunningHub] ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2${rhDetailText}`);
+    if (apiKey) {
+      invalidateBalanceCache(apiKey);
+      if (rhConsumeCoins != null) {
+        recordKeyConsumption(apiKey, rhConsumeCoins);
+      }
+    }
+    currentTaskId4 = null;
+    return {
+      image: finalImageData,
+      change: change_ || "",
+      isVideo,
+      format: mediaFormat,
+      originalUrl: outputUrl,
+      genParams: _rh_gen_params,
+      taskCostTime: rhTaskCostTime,
+      consumeCoins: rhConsumeCoins
+    };
+  } catch (err) {
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    if (rawMessage !== "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+      taskQueue.completeTask(taskId, false);
+      recordImageGeneration("runninghub", false);
+      toastr.error(`RunningHub \u751F\u56FE\u5931\u8D25: ${rawMessage}`);
+    }
+    currentTaskId4 = null;
+    addLog(`[RunningHub \u9519\u8BEF] ${rawMessage}`);
+    console.error("[RunningHub \u9519\u8BEF]", err);
+    throw err;
+  } finally {
+    if (keyLease && typeof keyLease.releaseKey === "function") {
+      try {
+        keyLease.releaseKey();
+      } catch (e) {
+        console.warn("[RunningHub] \u91CA\u653E Key \u5F02\u5E38:", e);
+      }
+      keyLease = null;
+    }
+  }
+}
+async function runninghubgenerate(requestData) {
+  const { id, prompt: prompt2, width, height, change, negative_prompt: extraNegativePrompt } = requestData;
+  addLog(`\u6536\u5230 RunningHub \u751F\u56FE\u8BF7\u6C42 (ID: ${id}) - Prompt: ${prompt2}${change ? ` - Change: ${change}` : ""}`);
+  if (change && change.includes("{\u4FEE\u56FE}")) {
+    bananaGenerate(requestData);
+    return;
+  }
+  if (change && change.includes("{\u89C6\u9891}")) {
+    bananaGenerate(requestData);
+    return;
+  }
+  try {
+    const { image: imageUrl, change: returnedChange, isVideo, format, originalUrl, genParams, taskCostTime, consumeCoins } = await generateRunningHubImage({
+      prompt: prompt2,
+      width,
+      height,
+      change,
+      extraNegativePrompt
+    });
+    if (extension_settings50[extensionName].cache != "0") {
+      await setItemImg(prompt2, imageUrl, {
+        change: returnedChange || "",
+        isVideo: isVideo || false,
+        format: format || (isVideo ? "mp4" : "png"),
+        originalUrl: originalUrl || "",
+        genParams,
+        taskCostTime: taskCostTime || null,
+        consumeCoins: consumeCoins || null,
+        onTailSuccess: () => addLog(`[RunningHub] ${isVideo ? "\u89C6\u9891" : "\u56FE\u50CF"}\u5DF2\u5B58\u5165\u6570\u636E\u5E93 for prompt: ${prompt2}`),
+        onTailError: (e) => {
+          const msg = `\u56FE\u7247\u5DF2\u663E\u793A\uFF0C\u4F46\u4FDD\u5B58\u5230\u6570\u636E\u5E93\u5931\u8D25: ${e?.message || e}`;
+          addLog(`\u9519\u8BEF: ${msg}`);
+          if (typeof toastr !== "undefined") toastr.error(msg);
+        }
+      });
+    } else {
+      addLog(`[RunningHub] \u7F13\u5B58\u8BBE\u7F6E\u4E3A\u4E0D\u5B58\u5165\u6570\u636E\u5E93`);
+    }
+    recordImageGeneration("runninghub", true);
+    eventSource23.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: true,
+      imageData: imageUrl,
+      isVideo: isVideo || false,
+      format: format || "image",
+      originalUrl: originalUrl || "",
+      prompt: prompt2,
+      change: returnedChange || "",
+      taskCostTime: taskCostTime || null,
+      consumeCoins: consumeCoins || null
+    });
+    addLog(`\u53D1\u9001 RunningHub ${isVideo ? "\u89C6\u9891" : "\u56FE\u7247"}\u751F\u6210\u6210\u529F\u54CD\u5E94 (ID: ${id})`);
+  } catch (error) {
+    recordImageGeneration("runninghub", false);
+    const errorMsg = `RunningHub \u751F\u56FE\u6D41\u7A0B\u6355\u83B7\u5230\u5F02\u5E38 (ID: ${id}): ${error.message}`;
+    addLog(`\u9519\u8BEF: ${errorMsg}`);
+    console.error("Error generating image via RunningHub:", error);
+    eventSource23.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: false,
+      error: error.message,
+      prompt: prompt2,
+      change
+    });
+    addLog(`\u53D1\u9001 RunningHub \u751F\u56FE\u5931\u8D25\u54CD\u5E94 (ID: ${id})`);
+  }
+}
+function initializeRunningHubListener() {
+  eventSource23.on(EventType.GENERATE_IMAGE_REQUEST, runninghubgenerate);
+  addLog("RunningHub \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u521D\u59CB\u5316\u3002");
+}
+async function replaceWithRunningHub() {
+  if (isPluginEnabled() && extension_settings50[extensionName].mode === "runninghub") {
+    if (!window.initializeRunningHubListener) {
+      window.initializeRunningHubListener = true;
+      initializeRunningHubListener();
+    }
+    initializeImageProcessing();
+  } else {
+    if (window.initializeRunningHubListener) {
+      eventSource23.removeListener(EventType.GENERATE_IMAGE_REQUEST, runninghubgenerate);
+      window.initializeRunningHubListener = false;
+      addLog("RunningHub \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u5173\u95ED\u3002");
+    }
+  }
+}
+var currentTaskId4;
+var init_runninghub = __esm({
+  "utils/runninghub.js"() {
+    init_utils();
+    init_config();
+    init_database();
+    init_genParams();
+    init_iframe2();
+    init_taskQueue();
+    init_characterprompt();
+    init_banana();
+    init_imageGenStats();
+    init_runninghubKeyManager();
+    init_runninghubVideo();
+    currentTaskId4 = null;
+  }
+});
+
+// utils/runninghubVideo.js
+var runninghubVideo_exports = {};
+__export(runninghubVideo_exports, {
+  buildRunningHubRefVideoWorkflow: () => buildRunningHubRefVideoWorkflow,
+  createBlankPngBlob: () => createBlankPngBlob,
+  createSilentWavBlob: () => createSilentWavBlob,
+  executeRunningHubVideoDirectTest: () => executeRunningHubVideoDirectTest,
+  extractLargestMediaFromZip: () => extractLargestMediaFromZip2,
+  formatRunningHubApiError: () => formatRunningHubApiError,
+  generateRunningHubRefVideo: () => generateRunningHubRefVideo,
+  isAssetManifestPrompt: () => isAssetManifestPrompt,
+  isValidMediaFileId: () => isValidMediaFileId,
+  parseAssetManifest: () => parseAssetManifest,
+  uploadBlankAudioWithCache: () => uploadBlankAudioWithCache,
+  uploadBlankPngWithCache: () => uploadBlankPngWithCache,
+  uploadImageBlobWithCache: () => uploadImageBlobWithCache,
+  uploadMediaWithCache: () => uploadMediaWithCache
+});
+
+
+async function resolveUploadApiKey(apiKey) {
+  let key = apiKey;
+  if (key) {

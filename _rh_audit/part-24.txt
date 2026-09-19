@@ -1,0 +1,180 @@
+    attempts++;
+    if (attempts % 5 === 0) {
+      notify(`ComfyUI \u89C6\u9891\u751F\u6210\u4E2D\uFF0C\u5DF2\u8017\u65F6\u7EA6 ${attempts} \u79D2...`);
+    }
+    let histRes;
+    try {
+      histRes = await fetch(`${url}/history/${runPromptId}`, { signal: abortSignal });
+      consecutiveFetchErrors = 0;
+    } catch (fetchErr) {
+      if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      consecutiveFetchErrors++;
+      if (consecutiveFetchErrors > 15) {
+        throw new Error(`\u65E0\u6CD5\u8FDE\u63A5\u5230 ComfyUI \u670D\u52A1\u6216\u8FDE\u63A5\u65AD\u5F00: ${fetchErr.message}`);
+      }
+      continue;
+    }
+    if (!histRes.ok) {
+      continue;
+    }
+    const histData = await histRes.json();
+    if (histData && histData.hasOwnProperty(runPromptId)) {
+      const promptHistory = histData[runPromptId];
+      if (promptHistory.status && promptHistory.status.status_str === "error") {
+        const errMsg = formatComfyUIApiError(promptHistory.status, "ComfyUI \u4EFB\u52A1\u6267\u884C\u51FA\u9519");
+        throw new Error(errMsg);
+      }
+      const outputs = promptHistory.outputs || {};
+      let foundFile = null;
+      for (const key in outputs) {
+        const val = outputs[key];
+        if (val.gifs && val.gifs.length > 0) {
+          const gif = val.gifs[0];
+          foundFile = {
+            filename: gif.filename,
+            subfolder: gif.subfolder || "",
+            isVideo: gif.format ? gif.format.startsWith("video/") : true,
+            format: gif.format || "video/mp4"
+          };
+          break;
+        }
+        if (val.images && val.images.length > 0) {
+          const outImg = val.images.find((img) => img.type === "output") || val.images[0];
+          foundFile = {
+            filename: outImg.filename,
+            subfolder: outImg.subfolder || "",
+            isVideo: false,
+            format: "image/png"
+          };
+          break;
+        }
+      }
+      if (foundFile) {
+        foundFileName = foundFile.filename;
+        notify(`\u751F\u6210\u5B8C\u6210\uFF0C\u6B63\u5728\u62C9\u53D6\u89C6\u9891\u6587\u4EF6: ${foundFile.filename}...`);
+        outputUrl = `${url}/view?filename=${encodeURIComponent(foundFile.filename)}&subfolder=${encodeURIComponent(foundFile.subfolder)}&type=output`;
+        const viewRes = await fetch(outputUrl, { signal: abortSignal });
+        if (!viewRes.ok) {
+          throw new Error(`\u83B7\u53D6\u6587\u4EF6\u5931\u8D25: ${viewRes.status}`);
+        }
+        let fileBlob = await viewRes.blob();
+        isVideo = foundFile.isVideo;
+        mediaFormat = foundFile.format;
+        if (isVideo) {
+          let correctedMime = "video/mp4";
+          if (mediaFormat.includes("webm")) {
+            correctedMime = "video/webm";
+          } else if (mediaFormat.includes("mp4") || mediaFormat.includes("h264")) {
+            correctedMime = "video/mp4";
+          }
+          mediaFormat = correctedMime;
+          const arrBuf = await fileBlob.arrayBuffer();
+          fileBlob = new Blob([arrBuf], { type: correctedMime });
+        }
+        const localBlobUrl = URL.createObjectURL(fileBlob);
+        notify("\u89C6\u9891\u6570\u636E\u5DF2\u52A0\u8F7D\u5C31\u7EEA\uFF01");
+        return {
+          videoUrl: localBlobUrl,
+          originalUrl: outputUrl,
+          seedUsed,
+          filename: foundFileName,
+          format: mediaFormat,
+          isVideo
+        };
+      }
+    }
+    if (attempts > 900) {
+      throw new Error("ComfyUI \u89C6\u9891\u751F\u6210\u8D85\u65F6 (\u5DF2\u7B49\u5F8515\u5206\u949F)");
+    }
+  }
+}
+var UPLOAD_CACHE_EXPIRY_MS2, activeComfyUIVideoTasks, handleComfyUIVideoCancel, generateComfyUIVideo;
+var init_comfyuiVideo = __esm({
+  "utils/comfyuiVideo.js"() {
+    init_utils();
+    init_config();
+    init_configDatabase();
+    init_database();
+    init_genParams();
+    init_taskQueue();
+    init_imageGenStats();
+    init_workers();
+    init_worker();
+    UPLOAD_CACHE_EXPIRY_MS2 = 24 * 60 * 60 * 1e3;
+    activeComfyUIVideoTasks = /* @__PURE__ */ new Map();
+    handleComfyUIVideoCancel = ({ taskId } = {}) => {
+      if (taskId && activeComfyUIVideoTasks.has(taskId)) {
+        abortComfyUIVideoTask(taskId);
+      }
+    };
+    if (typeof eventSource24 !== "undefined" && eventSource24?.on) {
+      eventSource24.on("st_chatu8_cancel_task", handleComfyUIVideoCancel);
+      eventSource24.on("st_chatu8_cancel_comfyui_task", handleComfyUIVideoCancel);
+    }
+    generateComfyUIVideo = generateComfyUIRefVideo;
+  }
+});
+
+// utils/iframe/generation.js
+
+
+async function _dataUrlToBlob(dataUrl) {
+  return safeDataUrlToBlob(dataUrl);
+}
+function setShowImagePreview(fn) {
+  _showImagePreview = fn;
+}
+function _chatu8RespDedupEnabled() {
+  if (_chatu8RespDedupEnabledCache === null) {
+    try {
+      const cfg = typeof window !== "undefined" ? window.__chatu8perf : null;
+      _chatu8RespDedupEnabledCache = !cfg || cfg.listenerDedup !== false;
+    } catch (e) {
+      _chatu8RespDedupEnabledCache = true;
+    }
+  }
+  return _chatu8RespDedupEnabledCache;
+}
+function trackImageResponseHandler(requestId, handler) {
+  if (!requestId || !_chatu8RespDedupEnabled()) {
+    eventSource25.on(EventType.GENERATE_IMAGE_RESPONSE, handler);
+    return;
+  }
+  const key = String(requestId);
+  const previous = _chatu8PendingImageRespHandlers.get(key);
+  if (previous && previous !== handler) {
+    try {
+      eventSource25.removeListener(EventType.GENERATE_IMAGE_RESPONSE, previous);
+    } catch (_) {
+    }
+  }
+  _chatu8PendingImageRespHandlers.set(key, handler);
+  if (!_chatu8RespDedupBound) {
+    _chatu8RespDedupBound = true;
+    try {
+      if (typeof window !== "undefined") {
+        window.addEventListener("pagehide", () => {
+          _chatu8PendingImageRespHandlers.forEach((h) => {
+            try {
+              eventSource25.removeListener(EventType.GENERATE_IMAGE_RESPONSE, h);
+            } catch (_) {
+            }
+          });
+          _chatu8PendingImageRespHandlers.clear();
+        }, { once: true });
+      }
+    } catch (_) {
+    }
+  }
+  eventSource25.on(EventType.GENERATE_IMAGE_RESPONSE, handler);
+}
+function untrackImageResponseHandler(requestId, handler) {
+  if (requestId && _chatu8RespDedupEnabled()) {
+    const key = String(requestId);
+    if (_chatu8PendingImageRespHandlers.get(key) === handler) {
+      _chatu8PendingImageRespHandlers.delete(key);
+    }
+  }
+  try {
+    eventSource25.removeListener(EventType.GENERATE_IMAGE_RESPONSE, handler);
+  } catch (_) {

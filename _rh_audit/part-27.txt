@@ -1,0 +1,109 @@
+        border-radius: 4px;
+        user-select: none;
+        transition: color 0.2s ease;
+    `;
+    let isLandscape = false;
+    function toggleLandscape(e) {
+      if (e) e.stopPropagation();
+      isLandscape = !isLandscape;
+      if (isLandscape) {
+        rotateBtn.style.color = "#3b82f6";
+        rotateBtn.title = "\u6062\u590D\u7AD6\u5C4F";
+        div2.classList.add("st-chatu8-landscape-mode");
+        if (!isCurrentFullscreen()) {
+          toggleVideoFullscreen();
+        }
+      } else {
+        rotateBtn.style.color = "#fff";
+        rotateBtn.title = "\u6A2A\u5C4F\u65CB\u8F6C90\u5EA6";
+        div2.classList.remove("st-chatu8-landscape-mode");
+      }
+    }
+    rotateBtn.onclick = toggleLandscape;
+    if (!doc2.getElementById("st-chatu8-fullscreen-style")) {
+      const style = doc2.createElement("style");
+      style.id = "st-chatu8-fullscreen-style";
+      style.textContent = `
+            .st-chatu8-image-container:fullscreen,
+            .st-chatu8-image-container:-webkit-full-screen,
+            .st-chatu8-image-container.st-chatu8-fullscreen-active {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                height: 100dvh !important;
+                max-width: none !important;
+                max-height: none !important;
+                background-color: #000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
+            }
+            .st-chatu8-image-container:fullscreen video,
+            .st-chatu8-image-container:-webkit-full-screen video,
+            .st-chatu8-image-container.st-chatu8-fullscreen-active video {
+                width: 100% !important;
+                height: 100% !important;
+                max-width: 100vw !important;
+                max-height: 100vh !important;
+                max-height: 100dvh !important;
+                object-fit: contain !important;
+                margin: auto !important;
+                transition: transform 0.25s ease;
+            }
+            .st-chatu8-image-container.st-chatu8-landscape-mode video,
+            .st-chatu8-image-container:fullscreen.st-chatu8-landscape-mode video,
+            .st-chatu8-image-container:-webkit-full-screen.st-chatu8-landscape-mode video,
+            .st-chatu8-fullscreen-active.st-chatu8-landscape-mode video {
+                transform: rotate(90deg) !important;
+                transform-origin: center center !important;
+                width: 100vh !important;
+                width: 100dvh !important;
+                height: 100vw !important;
+                min-width: 100dvh !important;
+                min-height: 100vw !important;
+                max-width: none !important;
+                max-height: none !important;
+                flex-shrink: 0 !important;
+                margin: 0 !important;
+                object-fit: contain !important;
+            }
+            .st-chatu8-image-container:fullscreen .st-chatu8-mini-player-controls,
+            .st-chatu8-image-container:-webkit-full-screen .st-chatu8-mini-player-controls,
+            .st-chatu8-image-container.st-chatu8-fullscreen-active .st-chatu8-mini-player-controls {
+                position: absolute !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                padding: 12px 24px !important;
+                background: linear-gradient(transparent, rgba(0, 0, 0, 0.92)) !important;
+                z-index: 10 !important;
+            }
+            /* \u5168\u5C4F\u6216\u6A2A\u5C4F\u6A21\u5F0F\u4E0B\u6682\u505C\u65F6\u5F7B\u5E95\u9690\u85CF\u4E2D\u592E\u5927\u64AD\u653E\u56FE\u6807\uFF0C\u907F\u514D\u906E\u6321\u753B\u9762\u7EC6\u8282 */
+            .st-chatu8-image-container:fullscreen .st-chatu8-big-play-btn,
+            .st-chatu8-image-container:-webkit-full-screen .st-chatu8-big-play-btn,
+            .st-chatu8-fullscreen-active .st-chatu8-big-play-btn,
+            .st-chatu8-landscape-mode .st-chatu8-big-play-btn {
+                display: none !important;
+            }
+        `;
+      doc2.head.appendChild(style);
+    }
+    const handleFsChange = () => {
+      const isFs = isCurrentFullscreen();
+      const topDoc = window.top ? window.top.document : doc2;
+      const currentFsEl = doc2.fullscreenElement || doc2.webkitFullscreenElement || topDoc && (topDoc.fullscreenElement || topDoc.webkitFullscreenElement);
+      if (isFs && (currentFsEl === div2 || currentFsEl === media2)) {
+        fullscreenBtn.innerHTML = "\u{1F5D7}";
+        fullscreenBtn.title = "\u9000\u51FA\u5168\u5C4F";
+        div2.classList.add("st-chatu8-fullscreen-active");
+        bigPlayBtn.style.opacity = "0";
+        bigPlayBtn.style.pointerEvents = "none";
+      } else {
+        fullscreenBtn.innerHTML = "\u26F6";
+        fullscreenBtn.title = "\u5168\u5C4F\u64AD\u653E";
+        div2.classList.remove("st-chatu8-fullscreen-active");
+        if (media2.paused && !isLandscape) {

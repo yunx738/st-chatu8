@@ -1,0 +1,180 @@
+function createBlankPngBlob2(width = 512, height = 512, color = "#000000") {
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, width, height);
+      }
+      canvas.toBlob((blob) => {
+        resolve(blob || new Blob([], { type: "image/png" }));
+      }, "image/png");
+    } catch (e) {
+      console.error("[ComfyUIVideo] \u521B\u5EFA\u7A7A\u767D Canvas \u5931\u8D25\uFF0C\u4F7F\u7528\u7EAF\u6587\u672C Blob \u515C\u5E95:", e);
+      resolve(new Blob([], { type: "image/png" }));
+    }
+  });
+}
+async function uploadBlankPngToComfyUIWithCache(comfyuiUrl) {
+  const fileId = "__st_blank_placeholder_png__";
+  const settings3 = extension_settings52[extensionName];
+  if (!settings3.comfyui_upload_cache) {
+    settings3.comfyui_upload_cache = {};
+  }
+  const cache = settings3.comfyui_upload_cache;
+  const now = Date.now();
+  if (cache[fileId] && cache[fileId].fileName) {
+    const cachedItem = cache[fileId];
+    if (now - (cachedItem.timestamp || 0) <= UPLOAD_CACHE_EXPIRY_MS2) {
+      addLog(`[ComfyUIVideo] \u547D\u4E2D\u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u7F13\u5B58: ${cachedItem.fileName}`);
+      return cachedItem.fileName;
+    }
+  }
+  addLog("[ComfyUIVideo] \u6B63\u5728\u751F\u6210 512x512 \u7A7A\u767D PNG \u515C\u5E95\u56FE\u5E76\u4E0A\u4F20\u81F3 ComfyUI...");
+  const blankBlob = await createBlankPngBlob2(512, 512, "#000000");
+  const fileName = "blank_placeholder.png";
+  const formData = new FormData();
+  formData.append("image", blankBlob, fileName);
+  formData.append("overwrite", "true");
+  const res = await fetch(`${comfyuiUrl}/upload/image`, {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ComfyUI \u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u5931\u8D25: ${errText}`);
+  }
+  const resData = await res.json();
+  const uploadedFileName = resData.name;
+  addLog(`[ComfyUIVideo] \u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u6210\u529F: ${uploadedFileName}`);
+  cache[fileId] = {
+    fileName: uploadedFileName,
+    timestamp: now
+  };
+  saveSettingsDebounced32();
+  return uploadedFileName;
+}
+function createSilentWavBlob2(durationSeconds = 1, sampleRate = 16e3) {
+  const numChannels = 1;
+  const bytesPerSample = 2;
+  const totalSamples = Math.floor(sampleRate * durationSeconds);
+  const dataSize = totalSamples * numChannels * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
+  view.setUint16(32, numChannels * bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+  return new Blob([buffer], { type: "audio/wav" });
+}
+async function uploadBlankAudioToComfyUIWithCache(comfyuiUrl) {
+  const fileId = "__st_blank_placeholder_aud__";
+  const settings3 = extension_settings52[extensionName];
+  if (!settings3.comfyui_upload_cache) {
+    settings3.comfyui_upload_cache = {};
+  }
+  const cache = settings3.comfyui_upload_cache;
+  const now = Date.now();
+  if (cache[fileId] && cache[fileId].fileName) {
+    const cachedItem = cache[fileId];
+    if (now - (cachedItem.timestamp || 0) <= UPLOAD_CACHE_EXPIRY_MS2) {
+      addLog(`[ComfyUIVideo] \u547D\u4E2D\u7A7A\u767D\u515C\u5E95\u97F3\u9891\u4E0A\u4F20\u7F13\u5B58: ${cachedItem.fileName}`);
+      return cachedItem.fileName;
+    }
+  }
+  addLog("[ComfyUIVideo] \u6B63\u5728\u751F\u6210 1\u79D2\u9759\u97F3 WAV \u515C\u5E95\u97F3\u9891\u5E76\u4E0A\u4F20\u81F3 ComfyUI...");
+  const blankBlob = createSilentWavBlob2(1, 16e3);
+  const fileName = "blank_placeholder.wav";
+  const formData = new FormData();
+  formData.append("image", blankBlob, fileName);
+  formData.append("overwrite", "true");
+  const res = await fetch(`${comfyuiUrl}/upload/image`, {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ComfyUI \u7A7A\u767D\u515C\u5E95\u97F3\u9891\u4E0A\u4F20\u5931\u8D25: ${errText}`);
+  }
+  const resData = await res.json();
+  const uploadedFileName = resData.name;
+  addLog(`[ComfyUIVideo] \u7A7A\u767D\u515C\u5E95\u97F3\u9891\u4E0A\u4F20\u6210\u529F: ${uploadedFileName}`);
+  cache[fileId] = {
+    fileName: uploadedFileName,
+    timestamp: now
+  };
+  saveSettingsDebounced32();
+  return uploadedFileName;
+}
+async function uploadImageBlobToComfyUIWithCache(imageSource, cacheKey, comfyuiUrl) {
+  if (!imageSource) return null;
+  const settings3 = extension_settings52[extensionName];
+  if (!settings3.comfyui_upload_cache) {
+    settings3.comfyui_upload_cache = {};
+  }
+  const cache = settings3.comfyui_upload_cache;
+  const now = Date.now();
+  const fullCacheKey = `rawimg_${cacheKey}`;
+  if (cache[fullCacheKey] && cache[fullCacheKey].fileName) {
+    const cachedItem = cache[fullCacheKey];
+    if (now - (cachedItem.timestamp || 0) <= UPLOAD_CACHE_EXPIRY_MS2) {
+      addLog(`[ComfyUIVideo] \u547D\u4E2D\u9996\u5E27\u53C2\u8003\u56FE\u4E0A\u4F20\u7F13\u5B58: ${cachedItem.fileName}`);
+      return cachedItem.fileName;
+    }
+  }
+  const processed = await prepareImageForUpload(imageSource, {
+    fallbackFileName: `first_frame_${Date.now()}.jpg`
+  });
+  const fileBlob = processed.blob;
+  const fileName = processed.fileName;
+  addLog(`[ComfyUIVideo] \u6B63\u5728\u4E0A\u4F20\u9996\u5E27\u53C2\u8003\u56FE\u7247\u5230 ComfyUI (${fileName}, ${(fileBlob.size / 1024).toFixed(1)} KB)...`);
+  const formData = new FormData();
+  formData.append("image", fileBlob, fileName);
+  formData.append("overwrite", "true");
+  const res = await fetch(`${comfyuiUrl}/upload/image`, {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ComfyUI \u9996\u5E27\u53C2\u8003\u56FE\u7247\u4E0A\u4F20\u5931\u8D25: ${errText}`);
+  }
+  const resData = await res.json();
+  const uploadedFileName = resData.name;
+  addLog(`[ComfyUIVideo] \u9996\u5E27\u53C2\u8003\u56FE\u7247\u4E0A\u4F20\u6210\u529F: ${uploadedFileName}`);
+  cache[fullCacheKey] = {
+    fileName: uploadedFileName,
+    timestamp: now
+  };
+  saveSettingsDebounced32();
+  return uploadedFileName;
+}
+async function uploadMediaToComfyUIWithCache(fileId, kind, comfyuiUrl) {
+  if (!fileId) return null;
+  const settings3 = extension_settings52[extensionName];
+  if (!settings3.comfyui_upload_cache) {
+    settings3.comfyui_upload_cache = {};
+  }
+  const cache = settings3.comfyui_upload_cache;
+  const now = Date.now();
+  let cacheChanged = false;
+  for (const [key, item] of Object.entries(cache)) {
+    if (item && item.timestamp && now - item.timestamp > UPLOAD_CACHE_EXPIRY_MS2) {
+      delete cache[key];

@@ -1,0 +1,180 @@
+      cacheChanged = true;
+    }
+  }
+  if (cache[fileId] && cache[fileId].fileName) {
+    const cachedItem = cache[fileId];
+    if (now - (cachedItem.timestamp || 0) <= UPLOAD_CACHE_EXPIRY_MS2) {
+      addLog(`[ComfyUIVideo] \u547D\u4E2D 24 \u5C0F\u65F6\u4E0A\u4F20\u7F13\u5B58: ${fileId} -> ${cachedItem.fileName}`);
+      if (cacheChanged) saveSettingsDebounced32();
+      return cachedItem.fileName;
+    }
+  }
+  addLog(`[ComfyUIVideo] \u672A\u547D\u4E2D\u7F13\u5B58\u6216\u5DF2\u8FC7\u671F\uFF0C\u4ECE\u672C\u5730\u8BFB\u53D6\u6587\u4EF6: ${fileId}`);
+  let fileBlob = null;
+  let fileName = `${fileId}.${kind === "aud" ? "mp3" : "png"}`;
+  try {
+    const configFile = await getConfigFile(fileId);
+    if (configFile && configFile.data) {
+      fileBlob = await dataToBlob2(configFile.data, configFile.mimeType || (kind === "aud" ? "audio/mpeg" : "image/png"));
+      if (configFile.fileName) fileName = configFile.fileName;
+    }
+  } catch (e) {
+    try {
+      const base64Img = await getConfigImage(fileId);
+      if (base64Img) {
+        fileBlob = await dataToBlob2(base64Img, kind === "aud" ? "audio/mpeg" : "image/png");
+      }
+    } catch (e2) {
+      console.error("[ComfyUIVideo] \u8BFB\u53D6\u914D\u7F6E\u6587\u4EF6\u5931\u8D25:", fileId, e, e2);
+    }
+  }
+  if (!fileBlob) {
+    throw new Error(`\u627E\u4E0D\u5230\u672C\u5730\u5A92\u4F53\u6587\u4EF6\u6216\u5DF2\u4E22\u5931: ${fileId}`);
+  }
+  if (kind === "img") {
+    try {
+      const processed = await prepareImageForUpload(fileBlob, {
+        fallbackFileName: fileName.replace(/\.[^/.]+$/, "") + ".jpg"
+      });
+      fileBlob = processed.blob;
+      fileName = processed.fileName;
+    } catch (procErr) {
+      console.warn("[ComfyUIVideo] \u56FE\u7247\u7D20\u6750\u9884\u5904\u7406\u5931\u8D25\uFF0C\u4F7F\u7528\u539F\u59CB\u6587\u4EF6:", procErr);
+    }
+  }
+  addLog(`[ComfyUIVideo] \u6B63\u5728\u4E0A\u4F20\u5A92\u4F53\u6587\u4EF6\u5230 ComfyUI (${fileName}, ${(fileBlob.size / 1024).toFixed(1)} KB)...`);
+  const formData = new FormData();
+  formData.append("image", fileBlob, fileName);
+  formData.append("overwrite", "true");
+  const res = await fetch(`${comfyuiUrl}/upload/image`, {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ComfyUI \u6587\u4EF6\u4E0A\u4F20\u5931\u8D25: ${errText}`);
+  }
+  const resData = await res.json();
+  const uploadedFileName = resData.name;
+  addLog(`[ComfyUIVideo] \u4E0A\u4F20\u6210\u529F: ${fileId} -> ${uploadedFileName}`);
+  cache[fileId] = {
+    fileName: uploadedFileName,
+    timestamp: now
+  };
+  saveSettingsDebounced32();
+  return uploadedFileName;
+}
+function buildComfyUIRefVideoWorkflow(rawJson, promptText, uploadedImages, uploadedAudios, genSettings) {
+  let jsonStr = rawJson;
+  let seed = parseInt(genSettings.seed);
+  if (isNaN(seed) || seed === -1) {
+    seed = Math.floor(Math.random() * 9007199254740991);
+  }
+  jsonStr = jsonStr.replace(/"%种子%"/g, seed).replace(/"%seed%"/g, seed);
+  jsonStr = jsonStr.replace(/"%步数%"/g, genSettings.steps || "20").replace(/%步数%/g, genSettings.steps || "20");
+  jsonStr = jsonStr.replace(/"%视频步数%"/g, genSettings.steps || "20").replace(/%视频步数%/g, genSettings.steps || "20");
+  let megapixels = parseFloat(genSettings.megapixels) || 0.9;
+  jsonStr = jsonStr.replace(/"%像素%"/g, megapixels).replace(/"%megapixels%"/g, megapixels);
+  jsonStr = jsonStr.replace(/"%视频秒数%"/g, genSettings.duration || "4").replace(/"%duration%"/g, genSettings.duration || "4");
+  const modelName = genSettings.modelName || "";
+  jsonStr = jsonStr.replace(/"%MODEL_NAME%"/g, JSON.stringify(modelName));
+  let escapedPrompt = (promptText || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "");
+  jsonStr = jsonStr.replace(/%提示词%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%prompt%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%正面提示词%/g, escapedPrompt);
+  const fallbackImgName = (genSettings.defaultImg || "").trim() || genSettings.blankImg || uploadedImages[1] || "";
+  const fallbackAudName = (genSettings.defaultAud || "").trim() || genSettings.blankAud || uploadedAudios[1] || "";
+  for (let i = 1; i <= 9; i++) {
+    const isEnabled = Boolean(uploadedImages[i]);
+    const switchVal = isEnabled ? 1 : 2;
+    const imgName = uploadedImages[i] || fallbackImgName;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u56FE\u7247${i}\u63A7\u5236%"`, "g"), switchVal);
+    jsonStr = jsonStr.replace(new RegExp(`%\u56FE\u7247${i}%`, "g"), imgName);
+  }
+  for (let i = 1; i <= 3; i++) {
+    const isEnabled = Boolean(uploadedAudios[i]);
+    const switchVal = isEnabled ? 1 : 2;
+    const audName = uploadedAudios[i] || fallbackAudName;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u97F3\u9891${i}\u63A7\u5236%"`, "g"), switchVal);
+    jsonStr = jsonStr.replace(new RegExp(`%\u97F3\u9891${i}%`, "g"), audName);
+  }
+  if (uploadedImages[1]) {
+    jsonStr = jsonStr.replace(/"%comfyuicankaotupian%"/g, JSON.stringify(uploadedImages[1]));
+  }
+  let promptObj;
+  try {
+    promptObj = JSON.parse(jsonStr);
+  } catch (err) {
+    console.error("[ComfyUIVideo] \u5DE5\u4F5C\u6D41 JSON \u89E3\u6790\u5931\u8D25:", jsonStr);
+    throw new Error("ComfyUI \u89C6\u9891\u5DE5\u4F5C\u6D41 JSON \u6784\u5EFA\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6A21\u677F\u683C\u5F0F");
+  }
+  let rawTplObj = {};
+  try {
+    rawTplObj = JSON.parse(rawJson);
+  } catch (e) {
+  }
+  for (let i = 1; i <= 9; i++) {
+    const isEnabled = Boolean(uploadedImages[i]);
+    const nodeMode = isEnabled ? 0 : 4;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u56FE\u7247${i}%`) || rawNodeStr.includes(`%\u56FE\u7247${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  for (let i = 1; i <= 3; i++) {
+    const isEnabled = Boolean(uploadedAudios[i]);
+    const nodeMode = isEnabled ? 0 : 4;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u97F3\u9891${i}%`) || rawNodeStr.includes(`%\u97F3\u9891${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  return { promptObj, seedUsed: seed };
+}
+async function generateComfyUIRefVideo({ prompt: rawPrompt, width: Xwidth, height: Xheight, change }) {
+  clearLog();
+  const targetPrompt = change || rawPrompt || "";
+  addLog("[ComfyUIVideo] \u5F00\u59CB\u89E3\u6790 asset_manifest \u63D0\u793A\u8BCD...");
+  const { manifest, promptText, pictures, audios, invalidPictures, invalidAudios, isFirstFrameRef } = parseAssetManifest2(targetPrompt);
+  const hasExtraRefImages = Object.keys(pictures).some((k) => String(k) !== "1");
+  const isImg2Vid = isFirstFrameRef && !hasExtraRefImages;
+  const taskType = isImg2Vid ? TaskType.COMFYUI_IMG2VID : TaskType.COMFYUI_REF2VID;
+  const taskTypeName = isImg2Vid ? "ComfyUI \u56FE\u751F\u89C6\u9891" : "ComfyUI \u53C2\u8003\u751F\u89C6\u9891";
+  const taskId = taskQueue.addTask({
+    name: (targetPrompt || "").substring(0, 30) + (targetPrompt.length > 30 ? "..." : ""),
+    type: taskType,
+    prompt: targetPrompt
+  });
+  taskQueue.updateStatus(taskId, TaskStatus.RUNNING);
+  const startTime = Date.now();
+  toastr.info(`\u{1F3AC} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
+  const settings3 = extension_settings52[extensionName];
+  const url = (settings3.comfyuiUrl || "http://localhost:8188").trim();
+  const abortController = new AbortController();
+  registerActiveComfyUIVideoTask(taskId, { abortController, url, promptId: null });
+  let lockAcquired = false;
+  try {
+    if (!url) {
+      throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 ComfyUI API \u5730\u5740");
+    }
+    if (invalidPictures && invalidPictures.length > 0) {
+      addLog(`[ComfyUIVideo] \u5FFD\u7565\u672A\u7ED1\u5B9A\u6216\u7A7A\u6587\u4EF6\u56FE\u7247\u8D44\u4EA7: ${invalidPictures.map((i) => `Picture ${i}`).join(", ")}`);
+    }
+    if (invalidAudios && invalidAudios.length > 0) {
+      addLog(`[ComfyUIVideo] \u5FFD\u7565\u672A\u7ED1\u5B9A\u6216\u7A7A\u6587\u4EF6\u97F3\u9891\u8D44\u4EA7: ${invalidAudios.map((i) => `Audio ${i}`).join(", ")}`);
+    }
+    const picKeys = Object.keys(pictures);
+    const audKeys = Object.keys(audios);
+    addLog(`[ComfyUIVideo] \u89E3\u6790\u5B8C\u6210: \u5305\u542B ${picKeys.length} \u4E2A\u6709\u6548\u56FE\u7247\u53C2\u8003 (${picKeys.map((k) => `Picture ${k}`).join(", ") || "\u65E0"}), ${audKeys.length} \u4E2A\u6709\u6548\u97F3\u9891\u53C2\u8003 (${audKeys.map((k) => `Audio ${k}`).join(", ") || "\u65E0"})`);
+    const uploadedImages = {};
+    for (const [idx, fileId] of Object.entries(pictures)) {
+      addLog(`[ComfyUIVideo] \u5904\u7406 Picture ${idx} (file_id: ${fileId})...`);
+      const uploadedName = await uploadMediaToComfyUIWithCache(fileId, "img", url);

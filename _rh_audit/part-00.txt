@@ -1,0 +1,180 @@
+        if (format.includes("mp4") || format.includes("h264")) {
+          mimeType = "mp4";
+        } else if (format.includes("webm")) {
+          mimeType = "webm";
+        } else if (format.includes("gif")) {
+          mimeType = "gif";
+        }
+      }
+      imageUrl = `data:${mimePrefix}/${mimeType};base64,${data}`;
+      const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+      taskQueue.completeTask(taskId, true);
+      if (!isPluginToastDisabled()) {
+        toastr.success(`\u2705 ComfyUI \u666E\u901A\u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+      }
+      addLog(`ComfyUI \u666E\u901A\u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+      currentTaskId2 = null;
+      console.log("format", format, "isVideo", isVideo);
+      if (String(extension_settings48[extensionName].convertToJpegStorage) === "true" && !isVideo) {
+        imageUrl = await convertImageToJpeg(imageUrl);
+      }
+      let finalFormat = format;
+      if (isVideo) {
+        finalFormat = `video/${mimeType}`;
+      }
+      return { image: imageUrl, change: change_ || "", isVideo, format: finalFormat, genParams: _comfy_gen_params };
+    } else {
+      const urlObj = new URL(url + "/prompt");
+      const response = await fetch(urlObj.href, {
+        method: "POST",
+        body: payload,
+        headers: getComfyUIHeaders("application/json")
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        addLog(`API \u8BF7\u6C42\u5931\u8D25 (direct comfyui): ${errorText}`);
+        throw new Error(`\u8BF7\u6C42\u5931\u8D25,\u72B6\u6001\u7801: ${response.status}, \u8BE6\u60C5: ${errorText}`);
+      }
+      const r = await response.json();
+      let id = r.prompt_id;
+      let ii = 0;
+      while (true) {
+        try {
+          if (!taskQueue.isTaskInQueue(taskId)) {
+            addLog("\u4EFB\u52A1\u5DF2\u88AB\u7528\u6237\u53D6\u6D88\uFF0C\u6B63\u5728\u4E2D\u65AD ComfyUI...");
+            try {
+              await fetch(`${url}/api/interrupt`, { method: "POST", headers: getComfyUIHeaders() });
+            } catch (e) {
+              console.warn("[ComfyUI] \u4E2D\u65AD\u8BF7\u6C42\u5931\u8D25:", e);
+            }
+            throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+          }
+          const response2 = await fetch(`${url}/history/${id}`, { headers: getComfyUIHeaders() });
+          if (!response2.ok) {
+            addLog(`\u8F6E\u8BE2\u5386\u53F2\u8BB0\u5F55\u65F6\u51FA\u9519: ${response2.status}`);
+            throw new Error(`History request failed: ${response2.status}`);
+          }
+          let re = await response2.json();
+          console.log("response2", re);
+          if (re.hasOwnProperty(id)) {
+            const historyData = re[id];
+            if (historyData.status && historyData.status.status_str === "error") {
+              const errorInfo = historyData.status;
+              addLog(`\u274C ComfyUI \u6267\u884C\u5931\u8D25 - \u72B6\u6001: ${errorInfo.status_str}`);
+              if (errorInfo.messages && errorInfo.messages.length > 0) {
+                errorInfo.messages.forEach((msg, idx) => {
+                  addLog(`\u6D88\u606F ${idx + 1}: ${JSON.stringify(msg)}`);
+                });
+              }
+              let errorMessage = "ComfyUI \u6267\u884C\u9519\u8BEF";
+              if (errorInfo.exception_message) {
+                errorMessage = errorInfo.exception_message;
+                addLog(`\u5F02\u5E38\u4FE1\u606F: ${errorInfo.exception_message}`);
+              }
+              if (errorInfo.exception_type) {
+                addLog(`\u5F02\u5E38\u7C7B\u578B: ${errorInfo.exception_type}`);
+              }
+              throw new Error(errorMessage);
+            }
+          }
+          if (re.hasOwnProperty(id)) {
+            let getImageInfoFromOutputs = function(outputs) {
+              for (const key in outputs) {
+                const value = outputs[key];
+                if (value.images && value.images.length > 0) {
+                  const outputImage = value.images.find((img) => img.type === "output");
+                  if (outputImage) {
+                    return {
+                      filename: outputImage.filename,
+                      subfolder: outputImage.subfolder || "",
+                      isVideo: false,
+                      format: "image"
+                    };
+                  }
+                  continue;
+                }
+                if (value.gifs && value.gifs.length > 0) {
+                  const gif = value.gifs[0];
+                  const isVideo2 = gif.format && gif.format.startsWith("video/");
+                  return {
+                    filename: gif.filename,
+                    subfolder: gif.subfolder || "",
+                    isVideo: isVideo2,
+                    format: gif.format || "image/gif"
+                  };
+                }
+              }
+              return null;
+            };
+            let imageInfo = getImageInfoFromOutputs(re[id]["outputs"]);
+            if (!imageInfo) {
+              throw new Error("\u672A\u80FD\u4ECEAPI\u54CD\u5E94\u4E2D\u627E\u5230\u6587\u4EF6\u540D\u3002");
+            }
+            window._lastMediaInfo = imageInfo;
+            const mediaType = imageInfo.isVideo ? "\u89C6\u9891" : "\u56FE\u7247";
+            addLog(`${mediaType}\u751F\u6210\u6210\u529F (direct comfyui)\u3002`);
+            let fileurl = `${url}/view?filename=${imageInfo.filename}&subfolder=${encodeURIComponent(imageInfo.subfolder)}&type=output`;
+            const imageResponse = await fetch(fileurl, { headers: getComfyUIHeaders() });
+            if (!imageResponse.ok) {
+              throw new Error(`\u83B7\u53D6\u56FE\u7247\u5931\u8D25,\u72B6\u6001\u7801: ${imageResponse.status}`);
+            }
+            let blob = await imageResponse.blob();
+            if (imageInfo.isVideo) {
+              let correctedMimeType = "video/mp4";
+              if (imageInfo.format) {
+                if (imageInfo.format.includes("webm")) {
+                  correctedMimeType = "video/webm";
+                } else if (imageInfo.format.includes("mp4") || imageInfo.format.includes("h264")) {
+                  correctedMimeType = "video/mp4";
+                }
+              }
+              const arrayBuffer = await blob.arrayBuffer();
+              blob = new Blob([arrayBuffer], { type: correctedMimeType });
+              console.log(`[ComfyUI] \u89C6\u9891 MIME \u7C7B\u578B\u4FEE\u6B63: ${imageInfo.format} -> ${correctedMimeType}`);
+              if (correctedMimeType === "video/mp4") {
+                try {
+                  blob = await fixMp4Faststart(blob);
+                  console.log("[ComfyUI] MP4 faststart \u5904\u7406\u5B8C\u6210");
+                } catch (err) {
+                  console.warn("[ComfyUI] faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", err);
+                }
+              }
+              window._lastMediaInfo.format = correctedMimeType;
+            }
+            imageUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            if (String(extension_settings48[extensionName].convertToJpegStorage) === "true") {
+              if (!imageInfo.isVideo) {
+                imageUrl = await convertImageToJpeg(imageUrl);
+              }
+            }
+            break;
+          }
+          await sleep(1e3);
+          ii++;
+          if (ii > 1e3) {
+            addLog("\u8F6E\u8BE2\u8D85\u65F6\uFF081000\u6B21\uFF09\uFF0C\u670D\u52A1\u5668\u53EF\u80FD\u5DF2\u65AD\u5F00\u8FDE\u63A5\u3002");
+            throw new Error("ComfyUI \u670D\u52A1\u5668\u8D85\u65F6\u3002");
+          }
+        } catch (error) {
+          addLog(`\u8F6E\u8BE2\u65F6\u53D1\u751F\u5F02\u5E38: ${error}`);
+          throw error;
+        }
+      }
+      if (!imageUrl) {
+        throw new Error("\u672A\u80FD\u751F\u6210\u56FE\u7247 URL\u3002");
+      }
+      const isVideo = window._lastMediaInfo?.isVideo || false;
+      const mediaFormat = window._lastMediaInfo?.format || "image";
+      const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+      addLog(`\u5A92\u4F53 (${isVideo ? "\u89C6\u9891" : "\u56FE\u7247"}) \u5DF2\u6210\u529F\u83B7\u53D6\u5E76\u683C\u5F0F\u5316\u4E3A data URL (\u8017\u65F6 ${duration} \u79D2)\u3002`);
+      taskQueue.completeTask(taskId, true);
+      if (!isPluginToastDisabled()) {
+        toastr.success(`\u2705 ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+      }
+      currentTaskId2 = null;
+      return { image: imageUrl, change: change_ || "", isVideo, format: mediaFormat, genParams: _comfy_gen_params };

@@ -1,0 +1,180 @@
+    sampler_name: settings3.runninghub_sampler_name,
+    vae: settings3.runninghub_vae,
+    scheduler: settings3.runninghub_scheduler,
+    clip: settings3.runninghub_clip_name,
+    cfg: settings3.runninghub_cfg,
+    megapixels: settings3.runninghub_val_megapixels,
+    duration: settings3.runninghub_val_duration,
+    defaultImg: settings3.runninghub_val_default_img,
+    defaultAud: settings3.runninghub_val_default_aud,
+    uploadedMedia: settings3.runninghub_uploadedMedia || { img: {}, aud: {} },
+    img_ctrl_1: settings3.runninghub_img_ctrl_1,
+    img_ctrl_2: settings3.runninghub_img_ctrl_2,
+    img_ctrl_3: settings3.runninghub_img_ctrl_3,
+    img_ctrl_4: settings3.runninghub_img_ctrl_4,
+    img_ctrl_5: settings3.runninghub_img_ctrl_5,
+    img_ctrl_6: settings3.runninghub_img_ctrl_6,
+    img_ctrl_7: settings3.runninghub_img_ctrl_7,
+    img_ctrl_8: settings3.runninghub_img_ctrl_8,
+    img_ctrl_9: settings3.runninghub_img_ctrl_9,
+    aud_ctrl_1: settings3.runninghub_aud_ctrl_1,
+    aud_ctrl_2: settings3.runninghub_aud_ctrl_2,
+    aud_ctrl_3: settings3.runninghub_aud_ctrl_3
+  };
+  const { promptObj, seedUsed } = buildRunningHubWorkflow(rawJson, prompt2, negative_prompt, genSettings);
+  const _rh_gen_params = buildGenParams("RunningHub", {
+    model: workflowId,
+    yushe: _rh_yushe_id,
+    yusheRandom: settings3.randomYushe === "true",
+    promptReplaceId: settings3.prompt_replace_id,
+    resolvedPrompt: prompt2,
+    negativePrompt: negative_prompt,
+    width: reqWidth,
+    height: reqHeight,
+    seed: seedUsed,
+    steps: genSettings.steps,
+    duration: settings3.runninghub_val_duration
+  });
+  let keyLease = null;
+  let apiKey = null;
+  let runTaskId = null;
+  let isRetry = false;
+  try {
+    while (true) {
+      if (!taskQueue.isTaskInQueue(taskId)) {
+        addLog("\u6B63\u5F0F\u8BF7\u6C42\u524D\u68C0\u6D4B\u5230\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");
+        throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      }
+      addLog(`[RunningHub] \u6B63\u5728\u4ECE Key \u6C60\u5206\u914D\u7A7A\u95F2\u4E14\u6709\u4F59\u989D\u7684 API Key (\u4F18\u5148\u7EA7: ${isRetry ? "\u9AD8" : "\u666E\u901A"})...`);
+      keyLease = await acquireRunningHubKey({
+        taskId,
+        isTaskCancelled: () => !taskQueue.isTaskInQueue(taskId),
+        priority: isRetry ? "high" : "normal"
+      });
+      apiKey = keyLease.apiKey;
+      taskQueue.updateStatus(taskId, "running");
+      const nodeInfoList = extractNodeInfoListFromWorkflow(rawJson, promptObj);
+      addLog(`[RunningHub v2] \u63D0\u53D6\u5230 ${nodeInfoList.length} \u4E2A\u8986\u76D6\u53C2\u6570: ${nodeInfoList.map((n) => `${n.nodeId}.${n.fieldName}`).join(", ")}`);
+      addLog(`[RunningHub v2] \u6B63\u5728\u53D1\u8D77\u4EFB\u52A1\u8BF7\u6C42 (Workflow ID: ${workflowId})...`);
+      const payload = {
+        nodeInfoList,
+        addMetadata: true,
+        usePersonalQueue: false
+      };
+      if (settings3.runninghub_instance_type && settings3.runninghub_instance_type !== "default") {
+        payload.instanceType = settings3.runninghub_instance_type;
+      }
+      if (settings3.runninghub_retain_seconds) {
+        const retain = parseInt(settings3.runninghub_retain_seconds, 10);
+        if (!isNaN(retain) && retain >= 10 && retain <= 180) {
+          payload.retainSeconds = retain;
+        }
+      }
+      const createRes = await fetch(`https://www.runninghub.ai/openapi/v2/run/workflow/${workflowId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const createData = await createRes.json();
+      if (createData.taskId) {
+        runTaskId = createData.taskId;
+        addLog(`[RunningHub v2] \u4EFB\u52A1\u5DF2\u521B\u5EFA\uFF0CID: ${runTaskId}\uFF0C\u8FDB\u5165\u8F6E\u8BE2\u7B49\u5F85...`);
+        break;
+      }
+      const errMsg = formatRunningHubApiError({ ...createData, _workflowId: workflowId }, "\u521B\u5EFA RunningHub \u4EFB\u52A1\u5931\u8D25");
+      if (/TASK_QUEUE_MAXED/i.test(errMsg) || /queue.*max/i.test(errMsg) || /并发.*满/i.test(errMsg)) {
+        addLog(`[RunningHub] \u5B98\u65B9\u63D0\u793A\u961F\u5217\u5DF2\u6EE1 (${errMsg})\uFF0C\u91CA\u653E\u5F53\u524D Key \u5E76\u8F6C\u5165\u961F\u9996\u7B49\u5F85\u4F18\u5148\u91CD\u8BD5...`);
+        if (keyLease && typeof keyLease.releaseKey === "function") {
+          keyLease.releaseKey();
+          keyLease = null;
+        }
+        taskQueue.updateStatus(taskId, TaskStatus.QUEUED);
+        isRetry = true;
+        await sleep(3500);
+        continue;
+      }
+      throw new Error(errMsg);
+    }
+    let attempts = 0;
+    let outputUrl = null;
+    let rhTaskCostTime = null;
+    let rhConsumeCoins = null;
+    while (true) {
+      await sleep(2e3);
+      if (!taskQueue.isTaskInQueue(taskId)) {
+        addLog("\u8F6E\u8BE2\u671F\u95F4\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");
+        throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      }
+      const statRes = await fetch("https://www.runninghub.ai/openapi/v2/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({ taskId: runTaskId })
+      });
+      const statData = await statRes.json();
+      const status = statData.status;
+      if (status === "SUCCESS") {
+        addLog("[RunningHub v2] \u4EFB\u52A1\u6267\u884C\u6210\u529F\uFF0C\u6B63\u5728\u89E3\u6790\u8F93\u51FA\u7ED3\u679C...");
+        if (statData.results && statData.results.length > 0) {
+          const mainItem = statData.results[0];
+          outputUrl = mainItem.url;
+          rhTaskCostTime = statData.taskCostTime != null ? String(statData.taskCostTime) : null;
+          rhConsumeCoins = statData.consumeCoins != null ? String(statData.consumeCoins) : null;
+          const rhDetailParts2 = [];
+          if (rhTaskCostTime != null) rhDetailParts2.push(`RH\u6D88\u8017\u65F6\u95F4: ${rhTaskCostTime}\u79D2`);
+          if (rhConsumeCoins != null) rhDetailParts2.push(`\u6D88\u8017RH\u70B9\u6570: ${rhConsumeCoins}`);
+          const rhDetailText2 = rhDetailParts2.length > 0 ? ` (${rhDetailParts2.join(", ")})` : "";
+          addLog(`[RunningHub v2] \u83B7\u53D6\u5230\u8F93\u51FA URL: ${outputUrl}${rhDetailText2} (\u683C\u5F0F: ${mainItem.outputType || "\u672A\u77E5"}, Node: ${mainItem.nodeId})`);
+        } else {
+          throw new Error("RunningHub \u4EFB\u52A1\u6210\u529F\u4F46\u672A\u8FD4\u56DE\u4EFB\u4F55\u8F93\u51FA\u6587\u4EF6");
+        }
+        break;
+      } else if (status === "FAILED") {
+        throw new Error(statData.errorMessage || "RunningHub \u4EFB\u52A1\u6267\u884C\u5931\u8D25");
+      } else {
+        addLog(`[RunningHub v2] \u4EFB\u52A1\u8FD0\u884C\u4E2D (${status || "QUEUED"})...`);
+      }
+      attempts++;
+      if (attempts > 300) {
+        throw new Error("RunningHub \u4EFB\u52A1\u6267\u884C\u8D85\u65F6 (10\u5206\u949F)");
+      }
+    }
+    addLog(`[RunningHub] \u6B63\u5728\u4E0B\u8F7D\u751F\u6210\u7684\u6587\u4EF6...`);
+    const fileRes = await fetch(outputUrl);
+    const fileBlob = await fileRes.blob();
+    const arrayBuffer = await fileBlob.arrayBuffer();
+    let finalImageData = null;
+    let isVideo = false;
+    let mediaFormat = "image/png";
+    const isZip = outputUrl.toLowerCase().includes(".zip") || fileBlob.type.includes("zip") || fileBlob.type.includes("octet-stream");
+    if (isZip) {
+      const extracted = await extractLargestMediaFromZip(arrayBuffer);
+      finalImageData = extracted.dataUrl;
+      isVideo = extracted.isVideo;
+      mediaFormat = extracted.mimeType || (isVideo ? "video/mp4" : "image/png");
+    } else {
+      let processedBlob = fileBlob;
+      const isMp4 = outputUrl.match(/\.mp4($|\?)/i) || fileBlob.type.includes("mp4");
+      if (isMp4) {
+        try {
+          processedBlob = await fixMp4Faststart(fileBlob);
+          addLog("[RunningHub] \u76F4\u8FDE MP4 faststart \u5904\u7406\u5B8C\u6210");
+        } catch (faststartErr) {
+          console.warn("[RunningHub] \u76F4\u8FDE MP4 faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", faststartErr);
+        }
+      }
+      finalImageData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(processedBlob);
+      });
+      if (outputUrl.match(/\.(mp4|webm|avi|mov)$/i) || fileBlob.type.includes("video/")) {
+        isVideo = true;
+        mediaFormat = "video/mp4";
+      }

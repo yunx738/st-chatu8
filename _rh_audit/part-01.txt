@@ -1,0 +1,180 @@
+    }
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const propagatedMessage = rawMessage === "Failed to fetch" || rawMessage === "Load failed" ? `ComfyUI \u8BF7\u6C42\u5931\u8D25\uFF0C\u53EF\u80FD\u662F\u670D\u52A1\u4E0D\u53EF\u8FBE\u3001\u8DE8\u57DF\u3001\u4EE3\u7406\u5F02\u5E38\u6216\u8FD4\u56DE\u4E86\u65E0\u6548\u54CD\u5E94: ${rawMessage}` : rawMessage;
+    if (rawMessage === "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+      toastr.info(`\u5DF2\u53D6\u6D88 ${taskTypeName}`);
+    } else {
+      taskQueue.completeTask(taskId, false);
+      toastr.error(`${taskTypeName}\u5931\u8D25: ${propagatedMessage}`);
+    }
+    currentTaskId2 = null;
+    addLog(`[ComfyUI \u9519\u8BEF] ${propagatedMessage}`);
+    console.error("Error generating media in ComfyUI:", error);
+    throw new Error(propagatedMessage);
+  } finally {
+    if (lockAcquired) {
+      const interval = Math.max(0, parseInt(extension_settings48[extensionName]?.imageGenInterval, 10) || 0);
+      releaseSerialLock(taskId, interval);
+    }
+  }
+}
+async function comfyuigenerate(requestData) {
+  let { id, prompt: prompt2, width, height, change, negative_prompt: extraNegativePrompt } = requestData;
+  addLog(`\u6536\u5230\u751F\u56FE\u8BF7\u6C42 (ID: ${id}) - Prompt: ${prompt2}${change ? ` - Change: ${change}` : ""}${extraNegativePrompt ? ` - NegativePrompt: ${extraNegativePrompt}` : ""}`);
+  if (change && change.includes("{\u4FEE\u56FE}")) {
+    bananaGenerate(requestData);
+    return;
+  }
+  if (change && change.includes("{\u89C6\u9891}")) {
+    bananaGenerate(requestData);
+    return;
+  }
+  try {
+    const { image: imageUrl, change: returnedChange, isVideo, format, genParams } = await generateComfyUIImage({ prompt: prompt2, width, height, change, extraNegativePrompt });
+    if (extension_settings48[extensionName].cache != "0") {
+      await setItemImg(prompt2, imageUrl, {
+        change: returnedChange,
+        isVideo,
+        format,
+        genParams,
+        onTailSuccess: () => addLog(`${isVideo ? "\u89C6\u9891" : "\u56FE\u50CF"}\u5DF2\u5B58\u5165\u6570\u636E\u5E93 for prompt: ${prompt2}`),
+        onTailError: (e) => {
+          const msg = `\u56FE\u7247\u5DF2\u663E\u793A\uFF0C\u4F46\u4FDD\u5B58\u5230\u6570\u636E\u5E93\u5931\u8D25: ${e?.message || e}`;
+          addLog(`\u9519\u8BEF: ${msg}`);
+          if (typeof toastr !== "undefined") toastr.error(msg);
+        }
+      });
+    } else {
+      addLog(`\u7F13\u5B58\u8BBE\u7F6E\u4E3A\u4E0D\u5B58\u5165\u6570\u636E\u5E93`);
+    }
+    recordImageGeneration("comfyui", true);
+    eventSource21.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: true,
+      imageData: imageUrl,
+      prompt: prompt2,
+      // pass back the original prompt
+      change: returnedChange,
+      isVideo: isVideo || false,
+      format: format || "image"
+    });
+    addLog(`\u53D1\u9001${isVideo ? "\u89C6\u9891" : "\u56FE\u7247"}\u751F\u6210\u6210\u529F\u54CD\u5E94 (ID: ${id})`);
+  } catch (error) {
+    const errorMsg = `\u751F\u56FE\u6D41\u7A0B\u6355\u83B7\u5230\u5F02\u5E38 (ID: ${id}): ${error.message}`;
+    addLog(`\u9519\u8BEF: ${errorMsg}`);
+    console.error("Error generating image:", error);
+    recordImageGeneration("comfyui", false);
+    eventSource21.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: false,
+      error: error.message,
+      prompt: prompt2
+    });
+    addLog(`\u53D1\u9001\u751F\u56FE\u5931\u8D25\u54CD\u5E94 (ID: ${id})`);
+  }
+}
+function initializeComfyuiListener() {
+  eventSource21.on(EventType.GENERATE_IMAGE_REQUEST, comfyuigenerate);
+  eventSource21.on("st_chatu8_cancel_task", handleComfyuiCancel);
+  eventSource21.on("st_chatu8_cancel_comfyui_task", handleComfyuiCancel);
+  addLog("comfyui \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u521D\u59CB\u5316\uFF08\u542B\u65E7\u7248\u517C\u5BB9\uFF09\u3002");
+}
+async function replaceWithcomfyui() {
+  if (isPluginEnabled() && extension_settings48[extensionName].mode == "comfyui") {
+    if (!window.initializeComfyuiListener) {
+      window.initializeComfyuiListener = true;
+      initializeComfyuiListener();
+    }
+    initializeImageProcessing();
+  } else {
+    if (window.initializeComfyuiListener) {
+      eventSource21.removeListener(EventType.GENERATE_IMAGE_REQUEST, comfyuigenerate);
+      window.initializeComfyuiListener = false;
+      addLog("comfyui \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u5173\u95ED\u3002");
+    }
+  }
+}
+var currentTaskId2, handleComfyuiCancel;
+var init_comfyui = __esm({
+  "utils/comfyui.js"() {
+    init_utils();
+    init_config();
+    init_database();
+    init_genParams();
+    init_iframe2();
+    init_taskQueue();
+    init_characterprompt();
+    init_banana();
+    init_imageGenStats();
+    init_worker();
+    currentTaskId2 = null;
+    handleComfyuiCancel = async ({ taskId } = {}) => {
+      if (taskId && taskId === currentTaskId2) {
+        console.log("[ComfyUI] \u6536\u5230\u53D6\u6D88\u4E8B\u4EF6\uFF0C\u6B63\u5728\u5411\u670D\u52A1\u5668\u53D1\u9001\u4E2D\u65AD\u8BF7\u6C42:", taskId);
+        const url = (extension_settings48[extensionName]?.comfyuiUrl || "http://localhost:8188").trim();
+        if (url) {
+          try {
+            await fetch(`${url}/api/interrupt`, { method: "POST" });
+          } catch (_) {
+          }
+        }
+      }
+    };
+  }
+});
+
+// utils/banana.js
+
+
+function getDirectHeaders(contentType = null, auth = null) {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "*/*"
+  };
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
+  if (auth) {
+    headers["Authorization"] = auth;
+  }
+  return headers;
+}
+async function getImageFromTurnData(data) {
+  if (!data) return "";
+  if (data.imageId && data.imageId.startsWith("cfgimg_")) {
+    const imageData = await getConfigImage(data.imageId);
+    return imageData || "";
+  }
+  if (data.image && data.image.startsWith("data:image")) {
+    return data.image;
+  }
+  return "";
+}
+async function dataUrlToBlob(dataUrl) {
+  if (!dataUrl) return null;
+  if (dataUrl.startsWith("blob:")) {
+    const resp = await fetch(dataUrl);
+    return await resp.blob();
+  }
+  if (dataUrl.startsWith("data:")) {
+    const parts = dataUrl.split(",");
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : "image/png";
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  }
+  try {
+    const resp = await fetch(dataUrl, { headers: getDirectHeaders() });
+    return await resp.blob();
+  } catch (e) {
+    return null;
+  }
+}
+function resolveGrokGenerationsUrl(apiUrl, customEndpoint) {
+  let base = (apiUrl || "").trim().replace(/\/+$/, "");

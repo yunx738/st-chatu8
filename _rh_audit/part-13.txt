@@ -1,0 +1,180 @@
+  const jsonBlock = extractJsonBlock(searchContent);
+  let manifest = null;
+  let remainingText = normalized;
+  if (jsonBlock) {
+    try {
+      manifest = JSON.parse(jsonBlock.jsonStr);
+    } catch (firstErr) {
+      try {
+        const cleanedJson = jsonBlock.jsonStr.replace(/\\n/g, "\n").replace(/\\r/g, "\n").replace(/,\s*([\]}])/g, "$1");
+        manifest = JSON.parse(cleanedJson);
+      } catch (secondErr) {
+        console.error("[RunningHubRefVideo] asset_manifest JSON \u89E3\u6790\u5931\u8D25:", firstErr, jsonBlock.jsonStr);
+        throw new Error(`asset_manifest JSON \u683C\u5F0F\u9519\u8BEF: ${firstErr.message}`);
+      }
+    }
+    const rawJsonEndInFull = afterHeaderIndex + jsonBlock.end;
+    let afterJson = normalized.substring(rawJsonEndInFull).trim();
+    afterJson = afterJson.replace(/^```[a-zA-Z0-9_-]*\s*/, "").replace(/```$/g, "").trim();
+    const subjectIdx = afterJson.search(/subject_definitions\s*:/i);
+    if (subjectIdx !== -1) {
+      remainingText = afterJson.substring(subjectIdx).trim();
+    } else {
+      remainingText = afterJson;
+    }
+  } else {
+    const subjectIdx = normalized.search(/subject_definitions\s*:/i);
+    if (subjectIdx !== -1) {
+      remainingText = normalized.substring(subjectIdx).trim();
+    }
+  }
+  if (remainingText) {
+    remainingText = remainingText.replace(/《(Subject\s*\d+)》/gi, "<$1>").replace(/《(Picture\s*\d+)》/gi, "<$1>").replace(/《(Audio\s*\d+)》/gi, "<$1>");
+  }
+  const pictures = {};
+  const audios = {};
+  const invalidPictures = [];
+  const invalidAudios = [];
+  let isFirstFrameRef = false;
+  let firstFramePicEntityRef = "";
+  if (manifest) {
+    if (Array.isArray(manifest.pictures)) {
+      for (const pic of manifest.pictures) {
+        const label = pic.label || "";
+        const match = label.match(/Picture\s*(\d+)/i);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          const entityRef = (pic.entity_ref || "").trim();
+          if (idx === 1 && (/首帧参考/i.test(entityRef) || entityRef === "\u9996\u5E27\u53C2\u8003\u56FE\u7247")) {
+            isFirstFrameRef = true;
+            firstFramePicEntityRef = entityRef;
+          }
+          if (isValidMediaFileId(pic.file_id)) {
+            if (idx >= 1 && idx <= 9) {
+              pictures[idx] = pic.file_id.trim();
+            }
+          } else {
+            if (idx === 1 && (/首帧参考/i.test(entityRef) || entityRef === "\u9996\u5E27\u53C2\u8003\u56FE\u7247")) {
+            } else {
+              invalidPictures.push(idx);
+            }
+          }
+        }
+      }
+    }
+    if (Array.isArray(manifest.audios)) {
+      for (const aud of manifest.audios) {
+        const label = aud.label || "";
+        const match = label.match(/Audio\s*(\d+)/i);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          if (isValidMediaFileId(aud.file_id)) {
+            if (idx >= 1 && idx <= 3) {
+              audios[idx] = aud.file_id.trim();
+            }
+          } else {
+            invalidAudios.push(idx);
+          }
+        }
+      }
+    }
+  }
+  if (remainingText) {
+    for (const idx of invalidAudios) {
+      remainingText = remainingText.replace(new RegExp(`(?:voice_anchor|audio_anchor|voice|audio)\\s*[:\uFF1A]\\s*[<\u300A]Audio\\s*${idx}[>\u300B]`, "gi"), "").replace(new RegExp(`[<\u300A]Audio\\s*${idx}[>\u300B]`, "gi"), "");
+    }
+    for (const idx of invalidPictures) {
+      remainingText = remainingText.replace(new RegExp(`(?:visual_anchor|image_anchor|picture_anchor)\\s*[:\uFF1A]\\s*[<\u300A]Picture\\s*${idx}[>\u300B]`, "gi"), "").replace(new RegExp(`[<\u300A]Picture\\s*${idx}[>\u300B]`, "gi"), "");
+    }
+  }
+  return {
+    manifest,
+    promptText: remainingText || normalized,
+    pictures,
+    audios,
+    invalidPictures,
+    invalidAudios,
+    isFirstFrameRef,
+    firstFramePicEntityRef
+  };
+}
+async function dataToBlob(data, defaultMime = "image/png") {
+  if (data instanceof Blob) {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Blob([data], { type: defaultMime });
+  }
+  if (typeof data === "string") {
+    if (data.startsWith("data:")) {
+      const commaIdx = data.indexOf(",");
+      const mime = data.substring(5, data.indexOf(";")) || defaultMime;
+      const b64 = data.substring(commaIdx + 1);
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
+    }
+  }
+  throw new Error("\u65E0\u6CD5\u8BC6\u522B\u7684\u6587\u4EF6\u6570\u636E\u683C\u5F0F");
+}
+function createBlankPngBlob(width = 512, height = 512, color = "#000000") {
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, width, height);
+      }
+      canvas.toBlob((blob) => {
+        resolve(blob || new Blob([], { type: "image/png" }));
+      }, "image/png");
+    } catch (e) {
+      console.error("[RunningHubRefVideo] \u521B\u5EFA\u7A7A\u767D Canvas \u5931\u8D25\uFF0C\u4F7F\u7528\u7EAF\u6587\u672C Blob \u515C\u5E95:", e);
+      resolve(new Blob([], { type: "image/png" }));
+    }
+  });
+}
+async function uploadBlankPngWithCache(apiKey) {
+  const validApiKey = await resolveUploadApiKey(apiKey);
+  if (!validApiKey) {
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 RunningHub API Key");
+  }
+  const fileId = "__st_blank_placeholder_png__";
+  const settings3 = extension_settings51[extensionName];
+  if (!settings3.runninghub_upload_cache) {
+    settings3.runninghub_upload_cache = {};
+  }
+  const cache = settings3.runninghub_upload_cache;
+  const now = Date.now();
+  if (cache[fileId] && cache[fileId].fileName) {
+    const cachedItem = cache[fileId];
+    if (now - (cachedItem.timestamp || 0) <= UPLOAD_CACHE_EXPIRY_MS) {
+      addLog(`[RunningHubRefVideo] \u547D\u4E2D\u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u7F13\u5B58: ${cachedItem.fileName}`);
+      return cachedItem.fileName;
+    }
+  }
+  addLog("[RunningHubRefVideo] \u6B63\u5728\u751F\u6210 512x512 \u7A7A\u767D PNG \u515C\u5E95\u56FE\u5E76\u4E0A\u4F20\u81F3 RunningHub...");
+  const blankBlob = await createBlankPngBlob(512, 512, "#000000");
+  const fileName = "blank_placeholder.png";
+  const formData = new FormData();
+  formData.append("file", blankBlob, fileName);
+  formData.append("apiKey", validApiKey);
+  formData.append("fileType", "input");
+  const res = await fetch("https://www.runninghub.ai/task/openapi/upload", {
+    method: "POST",
+    body: formData
+  });
+  const resData = await res.json();
+  if (resData.code !== 0 || !resData.data || !resData.data.fileName) {
+    throw new Error(`RunningHub \u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u5931\u8D25: ${resData.msg || "\u672A\u77E5\u9519\u8BEF"}`);
+  }
+  const uploadedFileName = resData.data.fileName;
+  addLog(`[RunningHubRefVideo] \u7A7A\u767D\u515C\u5E95\u56FE\u4E0A\u4F20\u6210\u529F: ${uploadedFileName}`);
+  cache[fileId] = {
+    fileName: uploadedFileName,

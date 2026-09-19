@@ -1,0 +1,180 @@
+            const gif = val.gifs[0];
+            foundFile = {
+              filename: gif.filename,
+              subfolder: gif.subfolder || "",
+              isVideo: gif.format ? gif.format.startsWith("video/") : true,
+              format: gif.format || "video/mp4"
+            };
+            break;
+          }
+          if (val.images && val.images.length > 0) {
+            const outImg = val.images.find((img) => img.type === "output") || val.images[0];
+            foundFile = {
+              filename: outImg.filename,
+              subfolder: outImg.subfolder || "",
+              isVideo: false,
+              format: "image/png"
+            };
+            break;
+          }
+        }
+        if (foundFile) {
+          addLog(`[ComfyUIVideo] \u4EFB\u52A1\u5B8C\u6210\uFF0C\u6B63\u5728\u83B7\u53D6\u751F\u6210\u6587\u4EF6: ${foundFile.filename}...`);
+          outputUrl = `${url}/view?filename=${encodeURIComponent(foundFile.filename)}&subfolder=${encodeURIComponent(foundFile.subfolder)}&type=output`;
+          const viewRes = await fetch(outputUrl, { signal: abortController.signal });
+          if (!viewRes.ok) {
+            throw new Error(`\u83B7\u53D6\u6587\u4EF6\u5931\u8D25: ${viewRes.status}`);
+          }
+          let fileBlob = await viewRes.blob();
+          isVideo = foundFile.isVideo;
+          mediaFormat = foundFile.format;
+          if (isVideo) {
+            let correctedMime = "video/mp4";
+            if (mediaFormat.includes("webm")) {
+              correctedMime = "video/webm";
+            } else if (mediaFormat.includes("mp4") || mediaFormat.includes("h264")) {
+              correctedMime = "video/mp4";
+            }
+            mediaFormat = correctedMime;
+            const arrBuf = await fileBlob.arrayBuffer();
+            fileBlob = new Blob([arrBuf], { type: correctedMime });
+          }
+          finalMediaData = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(fileBlob);
+          });
+          break;
+        }
+      }
+      if (attempts > 1200) {
+        throw new Error("ComfyUI \u89C6\u9891\u751F\u6210\u8D85\u65F6 (20\u5206\u949F)");
+      }
+    }
+    const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+    taskQueue.completeTask(taskId, true);
+    toastr.success(`\u2705 ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+    addLog(`[ComfyUIVideo] ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+    recordImageGeneration("comfyui", true);
+    return {
+      mediaData: finalMediaData,
+      isVideo,
+      format: mediaFormat,
+      originalUrl: outputUrl,
+      genParams: _comfy_gen_params
+    };
+  } catch (err) {
+    if (lockAcquired) {
+      window.xiancheng = true;
+    }
+    const isAborted = err.message === "\u4EFB\u52A1\u5DF2\u53D6\u6D88" || abortController.signal.aborted || !taskQueue.isTaskInQueue(taskId);
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    if (isAborted) {
+      taskQueue.cancelTask(taskId);
+      addLog(`[ComfyUIVideo] \u4EFB\u52A1\u5DF2\u88AB\u7528\u6237\u53D6\u6D88: ${taskId}`);
+      toastr.info(`\u5DF2\u53D6\u6D88 ${taskTypeName}`);
+    } else {
+      taskQueue.completeTask(taskId, false);
+      recordImageGeneration("comfyui", false);
+      addLog(`[ComfyUIVideo \u9519\u8BEF] ${rawMessage}`);
+      console.error("[ComfyUIVideo \u9519\u8BEF]", err);
+      toastr.error(`${taskTypeName}\u5931\u8D25: ${rawMessage}`);
+    }
+    throw err;
+  } finally {
+    unregisterActiveComfyUIVideoTask(taskId);
+    if (lockAcquired) {
+      setTimeout(() => {
+        window.xiancheng = true;
+      }, settings3.imageGenInterval || 1e3);
+    }
+  }
+}
+async function executeComfyUIVideoDirectTest({
+  prompt: prompt2,
+  workflowJson,
+  uploadedImages = {},
+  uploadedAudios = {},
+  genSettings = {},
+  comfyuiUrl,
+  onStatusUpdate,
+  abortSignal
+}) {
+  const notify = (msg, isError = false) => {
+    addLog(`[ComfyUITest] ${msg}`);
+    if (typeof onStatusUpdate === "function") {
+      onStatusUpdate(msg, isError);
+    }
+  };
+  const settings3 = extension_settings52[extensionName] || {};
+  const url = (comfyuiUrl || settings3.comfyuiUrl || "http://localhost:8188").trim();
+  if (!url) {
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 ComfyUI API \u5730\u5740");
+  }
+  notify("\u6B63\u5728\u5904\u7406\u6D4B\u8BD5\u63D0\u793A\u8BCD\u4E0E\u53C2\u6570...");
+  let targetPrompt = prompt2 || "";
+  if (isAssetManifestPrompt2(targetPrompt)) {
+    const parsed = parseAssetManifest2(targetPrompt);
+    if (parsed && parsed.promptText) {
+      targetPrompt = parsed.promptText;
+    }
+  }
+  const cleanPrompt = await stripChineseAnnotations(targetPrompt);
+  let { promptObj, seedUsed } = buildComfyUIRefVideoWorkflow(
+    workflowJson,
+    cleanPrompt,
+    uploadedImages,
+    uploadedAudios,
+    genSettings
+  );
+  const skippedCount = Object.values(promptObj).filter((n) => n && n._skip).length;
+  if (skippedCount > 0) {
+    notify(`\u68C0\u6D4B\u5230 ${skippedCount} \u4E2A\u8DF3\u8FC7\u7684\u8282\u70B9\uFF0C\u6B63\u5728\u5904\u7406\u8FDE\u63A5\u91CD\u6620\u5C04...`);
+    const objectInfo = await getComfyuiCache("objectinfo") || {};
+    promptObj = processSkippedNodes(promptObj, objectInfo);
+  }
+  if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+  notify(`\u6B63\u5728\u5411 ComfyUI \u63D0\u4EA4\u6D4B\u8BD5\u4EFB\u52A1 (\u79CD\u5B50: ${seedUsed})...`);
+  const clientId = "533ef3a3-39c0-4e39-9ced-37d290f371f8";
+  const promptPayload = JSON.stringify({ client_id: clientId, prompt: promptObj });
+  const submitRes = await fetch(`${url}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: promptPayload,
+    signal: abortSignal
+  });
+  if (!submitRes.ok) {
+    let errJson = null;
+    try {
+      errJson = await submitRes.json();
+    } catch (_) {
+    }
+    const errText = errJson ? formatComfyUIApiError(errJson) : await submitRes.text();
+    throw new Error(`ComfyUI \u63D0\u4EA4\u5931\u8D25 (${submitRes.status}): ${errText}`);
+  }
+  const submitData = await submitRes.json();
+  const runPromptId = submitData.prompt_id;
+  notify(`\u4EFB\u52A1\u5DF2\u6210\u529F\u63D0\u4EA4 (Prompt ID: ${runPromptId})\uFF0C\u6B63\u5728\u751F\u6210\u4E2D...`);
+  let attempts = 0;
+  let isVideo = true;
+  let mediaFormat = "video/mp4";
+  let outputUrl = null;
+  let foundFileName = "";
+  let consecutiveFetchErrors = 0;
+  while (true) {
+    if (abortSignal?.aborted) {
+      try {
+        await fetch(`${url}/api/interrupt`, { method: "POST" });
+      } catch (e) {
+      }
+      throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+    }
+    await sleep(1e3);
+    if (abortSignal?.aborted) {
+      try {
+        await fetch(`${url}/api/interrupt`, { method: "POST" });
+      } catch (e) {
+      }
+      throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+    }

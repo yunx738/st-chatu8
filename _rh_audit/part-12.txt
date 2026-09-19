@@ -1,0 +1,180 @@
+    const keys = parseRunningHubApiKeys(key);
+    key = keys[0] || null;
+  }
+  if (!key) {
+    key = await getUsableRunningHubKeyForUpload();
+  }
+  return key;
+}
+function formatRunningHubApiError(data, defaultMsg = "\u8BF7\u6C42 RunningHub \u5931\u8D25") {
+  if (!data || typeof data !== "object") {
+    return defaultMsg;
+  }
+  const errCode = data.errorCode || data.code;
+  let errMsg = data.errorMessage || data.msg || defaultMsg;
+  if (String(errCode) === "803" || /NODE_INFO_MISMATCH/i.test(errMsg)) {
+    return `\u5DE5\u4F5C\u6D41\u8282\u70B9\u4E0D\u5339\u914D (\u9519\u8BEF\u7801: 803): ${errMsg}\u3002
+\u3010\u6392\u67E5\u63D0\u793A\u3011\u5F53\u524D\u9884\u8BBE\u914D\u7F6E\u7684\u8986\u76D6\u8282\u70B9\u5728\u4E91\u7AEF\u5DE5\u4F5C\u6D41\u4E2D\u4E0D\u5B58\u5728\u6216\u5DF2\u88AB\u4FEE\u6539\u3002\u8BF7\u68C0\u67E5\u5F53\u524D\u9884\u8BBE\u7ED1\u5B9A\u7684\u5DE5\u4F5C\u6D41 ID (${data._workflowId || "\u76EE\u6807\u5DE5\u4F5C\u6D41"}) \u4E0E\u5BF9\u5E94\u7684 ComfyUI \u5DE5\u4F5C\u6D41 JSON \u6A21\u677F\u4E2D\u7684\u8282\u70B9 ID \u662F\u5426\u4E00\u81F4\uFF01`;
+  }
+  if (errCode) {
+    return `RunningHub \u62A5\u9519 [\u4EE3\u7801 ${errCode}]: ${errMsg}`;
+  }
+  return errMsg;
+}
+async function extractLargestMediaFromZip2(arrayBuffer) {
+  addLog("[RunningHubRefVideo] \u5F00\u59CB\u89E3\u538B\u8F93\u51FA ZIP \u538B\u7F29\u5305...");
+  const JSZipConstructor = window.stChatu8JSZip || window.JSZip;
+  if (!JSZipConstructor || typeof JSZipConstructor.loadAsync !== "function") {
+    throw new Error("JSZip \u4E0D\u53EF\u7528\uFF0C\u65E0\u6CD5\u89E3\u538B ZIP \u6587\u4EF6");
+  }
+  const zip = await JSZipConstructor.loadAsync(arrayBuffer);
+  const fileEntries = [];
+  zip.forEach((relativePath, zipEntry) => {
+    if (!zipEntry.dir) {
+      fileEntries.push(zipEntry);
+    }
+  });
+  if (fileEntries.length === 0) {
+    throw new Error("ZIP \u538B\u7F29\u5305\u5185\u672A\u627E\u5230\u4EFB\u4F55\u6709\u6548\u8F93\u51FA\u6587\u4EF6");
+  }
+  let largestEntry = null;
+  let maxSizeBytes = -1;
+  let largestBase64 = null;
+  for (const entry of fileEntries) {
+    try {
+      const base64Data = await entry.async("base64");
+      const approxSize = base64Data.length * 0.75;
+      if (approxSize > maxSizeBytes) {
+        maxSizeBytes = approxSize;
+        largestEntry = entry;
+        largestBase64 = base64Data;
+      }
+    } catch (e) {
+      console.warn(`[RunningHubRefVideo] \u8BFB\u53D6 ZIP \u6587\u4EF6 ${entry.name} \u5931\u8D25:`, e);
+    }
+  }
+  if (!largestEntry || !largestBase64) {
+    throw new Error("\u672A\u80FD\u6210\u529F\u63D0\u53D6 ZIP \u4E2D\u7684\u6587\u4EF6\u6570\u636E");
+  }
+  const fileName = largestEntry.name.toLowerCase();
+  let mimeType = "video/mp4";
+  let isVideo = true;
+  if (fileName.endsWith(".mp4")) {
+    mimeType = "video/mp4";
+    isVideo = true;
+  } else if (fileName.endsWith(".webm")) {
+    mimeType = "video/webm";
+    isVideo = true;
+  } else if (fileName.endsWith(".avi")) {
+    mimeType = "video/avi";
+    isVideo = true;
+  } else if (fileName.endsWith(".mov")) {
+    mimeType = "video/quicktime";
+    isVideo = true;
+  } else if (fileName.endsWith(".png")) {
+    mimeType = "image/png";
+    isVideo = false;
+  } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+    mimeType = "image/jpeg";
+    isVideo = false;
+  } else if (fileName.endsWith(".webp")) {
+    mimeType = "image/webp";
+    isVideo = false;
+  }
+  addLog(`[RunningHubRefVideo] \u63D0\u53D6\u4E3B\u6587\u4EF6: ${largestEntry.name} (${mimeType}, ${(maxSizeBytes / 1024 / 1024).toFixed(2)} MB)`);
+  if (isVideo && mimeType === "video/mp4") {
+    try {
+      const u8 = await largestEntry.async("uint8array");
+      const rawBlob = new Blob([u8], { type: "video/mp4" });
+      const fixedBlob = await fixMp4Faststart(rawBlob);
+      largestBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result || "";
+          const comma = result.indexOf(",");
+          resolve(comma !== -1 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(fixedBlob);
+      });
+      addLog("[RunningHubRefVideo] MP4 faststart \u5904\u7406\u5B8C\u6210");
+    } catch (faststartErr) {
+      console.warn("[RunningHubRefVideo] faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", faststartErr);
+    }
+  }
+  return {
+    dataUrl: `data:${mimeType};base64,${largestBase64}`,
+    isVideo,
+    fileName: largestEntry.name,
+    mimeType
+  };
+}
+function extractJsonBlock(text) {
+  if (!text) return null;
+  const startIdx = text.indexOf("{");
+  if (startIdx === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape2 = false;
+  for (let i = startIdx; i < text.length; i++) {
+    const char = text[i];
+    if (escape2) {
+      escape2 = false;
+      continue;
+    }
+    if (char === "\\") {
+      escape2 = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (char === "{") depth++;
+      else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          return {
+            jsonStr: text.substring(startIdx, i + 1),
+            start: startIdx,
+            end: i + 1
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+function isAssetManifestPrompt(text) {
+  if (!text || typeof text !== "string") return false;
+  let normalized = text.trim();
+  if (normalized.includes("\\n") || normalized.includes("\\r")) {
+    normalized = normalized.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  }
+  return /^\s*asset_manifest\s*:/im.test(normalized) || /asset_manifest\s*:\s*\{/i.test(normalized);
+}
+function isValidMediaFileId(fileId) {
+  if (fileId === null || fileId === void 0) return false;
+  if (typeof fileId !== "string") return false;
+  const trimmed = fileId.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower === "null" || lower === "undefined" || lower === "none" || lower === "nil" || lower === "false") return false;
+  return true;
+}
+function parseAssetManifest(rawPrompt) {
+  if (!rawPrompt || typeof rawPrompt !== "string") {
+    return { manifest: null, promptText: "", pictures: {}, audios: {}, invalidPictures: [], invalidAudios: [] };
+  }
+  let normalized = rawPrompt.trim();
+  if (normalized.includes("\\n") || normalized.includes("\\r")) {
+    normalized = normalized.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  }
+  let searchContent = normalized;
+  const manifestHeaderMatch = normalized.match(/asset_manifest\s*:/i);
+  let afterHeaderIndex = 0;
+  if (manifestHeaderMatch && typeof manifestHeaderMatch.index === "number") {
+    afterHeaderIndex = manifestHeaderMatch.index + manifestHeaderMatch[0].length;
+    searchContent = normalized.substring(afterHeaderIndex);
+  }

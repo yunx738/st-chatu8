@@ -1,0 +1,180 @@
+      const modelContent = [];
+      if (turn.model?.text) modelContent.push({ type: "text", text: turn.model.text });
+      const modelImage = await getImageFromTurnData(turn.model);
+      if (modelImage) modelContent.push({ type: "image_url", image_url: { url: modelImage } });
+      if (userContent2.length === 0 || modelContent.length === 0) {
+        if (userContent2.length > 0 && modelContent.length === 0) {
+          addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u8DF3\u8FC7 model \u4E3A\u7A7A\u7684\u9884\u8BBE\u8F6E\u6B21\uFF0C\u907F\u514D\u8FDE\u7EED user \u6D88\u606F\u5806\u53E0`);
+        }
+        continue;
+      }
+      history.push({ role: "user", content: userContent2 });
+      history.push({ role: "assistant", content: modelContent });
+    }
+    const userContent = [];
+    const promptText = videoPrompt || "";
+    const combinedPrompt = [preset.fixedPrompt, promptText, preset.postfixPrompt].filter(Boolean).join(", ");
+    userContent.push({ type: "text", text: combinedPrompt });
+    if (videoImage) {
+      userContent.push({ type: "image_url", image_url: { url: videoImage } });
+      addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u5DF2\u6DFB\u52A0\u53C2\u8003\u56FE\u7247`);
+    }
+    history.push({ role: "user", content: userContent });
+    addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u6307\u4EE4 = ${combinedPrompt}`);
+    const _videoGenParams = buildGenParams("Banana \u89C6\u9891", {
+      model: useModel,
+      yushe: selectedVideoPresetId,
+      promptReplaceId: bananaSettings2.prompt_replace_id || "\u9ED8\u8BA4",
+      resolvedPrompt: combinedPrompt,
+      aspectRatio: aspectRatio2
+    });
+    const payload2 = {
+      model: useModel,
+      messages: history.filter((entry) => entry.content.length > 0)
+      // config: {
+      //     imageConfig: {
+      //         aspectRatio: aspectRatio
+      //     }
+      // }
+    };
+    addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F payload \u5305\u542B ${payload2.messages.length} \u6761\u6D88\u606F\uFF08\u5DF2\u7981\u7528 config.imageConfig\uFF09`);
+    const path2 = "/v1/chat/completions";
+    let baseUrl2 = apiUrl2.replace(/\/$/, "");
+    let directUrl2 = baseUrl2 + "/chat/completions";
+    const client2 = extension_settings49[extensionName].client;
+    let requestUrl2, requestHeaders2, requestBody2;
+    if (client2 === "jiuguan") {
+      let proxyBaseUrl = baseUrl2;
+      requestUrl2 = "/api/backends/chat-completions/generate";
+      requestHeaders2 = getRequestHeaders(window.token);
+      requestBody2 = {
+        chat_completion_source: "custom",
+        custom_url: proxyBaseUrl,
+        custom_include_headers: `Authorization: "Bearer ${apiKey2}"`,
+        model: useModel,
+        messages: payload2.messages,
+        stream: false
+      };
+    } else {
+      requestUrl2 = directUrl2;
+      requestHeaders2 = getDirectHeaders("application/json", `Bearer ${apiKey2}`);
+      requestBody2 = payload2;
+    }
+    addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\u53D1\u9001\u8BF7\u6C42\u5230: ${requestUrl2}`);
+    addLog(`[Banana] \u89C6\u9891 Payload: ${JSON.stringify(requestBody2, null, 2)}`);
+    try {
+      taskQueue.updateStatus(taskId, "running");
+      const response = await fetch(requestUrl2, {
+        method: "POST",
+        headers: requestHeaders2,
+        body: JSON.stringify(requestBody2),
+        signal: currentAbortController.signal
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+      }
+      const result = await readOpenAIResponse(response);
+      const content = result.choices?.[0]?.message?.content;
+      if (typeof content === "string") {
+        const videoSrcMatch = content.match(/src="([^"]+\.mp4[^"]*)"/);
+        if (videoSrcMatch && videoSrcMatch[1]) {
+          const videoUrl = videoSrcMatch[1];
+          addLog(`[Banana] Video URL extracted: ${videoUrl}`);
+          try {
+            const videoResponse = await fetch(videoUrl, { headers: getDirectHeaders() });
+            if (!videoResponse.ok) {
+              throw new Error(`Failed to fetch video: ${videoResponse.status}`);
+            }
+            const videoBlob = await videoResponse.blob();
+            const videoDataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(videoBlob);
+            });
+            const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+            addLog(`[Banana] Video downloaded (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB, \u8017\u65F6 ${duration} \u79D2)`);
+            taskQueue.completeTask(taskId, true);
+            if (!isPluginToastDisabled()) {
+              toastr.success(`\u2705 Banana \u89C6\u9891\u751F\u6210\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+            }
+            currentTaskId3 = null;
+            const changeClean = change.replaceAll("{\u89C6\u9891}", "");
+            return { image: videoDataUrl, change: changeClean || prompt2, isVideo: true, format: "video/mp4", originalUrl: videoUrl, genParams: _videoGenParams };
+          } catch (fetchError) {
+            addLog(`[Banana] Failed to download video: ${fetchError.message}`);
+            throw new Error(`\u89C6\u9891\u4E0B\u8F7D\u5931\u8D25: ${fetchError.message}`);
+          }
+        }
+      }
+      throw new Error("Video response did not contain a valid MP4 URL");
+    } catch (error) {
+      addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\u9519\u8BEF: ${error.message}`);
+      if (error.name === "AbortError" || error.message === "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+        addLog("[Banana] \u89C6\u9891\u751F\u6210\u88AB\u53D6\u6D88\u3002");
+      } else {
+        taskQueue.completeTask(taskId, false);
+      }
+      currentTaskId3 = null;
+      throw error;
+    }
+  }
+  let change_ = change;
+  const sizeRegex = /,?\s*(\d{2,4})x(\d{2,4})(?=[;\s]*$)/i;
+  if (typeof prompt2 === "string") {
+    const match = prompt2.match(sizeRegex);
+    if (match) {
+      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+        width = parseInt(match[1], 10);
+        height = parseInt(match[2], 10);
+      }
+    }
+    prompt2 = prompt2.replace(sizeRegex, "");
+  }
+  if (typeof change === "string") {
+    const match = change.match(sizeRegex);
+    if (match) {
+      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+        width = parseInt(match[1], 10);
+        height = parseInt(match[2], 10);
+      }
+    }
+    change = change.replace(sizeRegex, "");
+  }
+  prompt2 = processCharacterPrompt(prompt2);
+  prompt2 = await stripChineseAnnotations(prompt2);
+  change = processCharacterPrompt(change);
+  change = await stripChineseAnnotations(change);
+  addLog(`\u5F00\u59CB Banana\u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${extension_settings49[extensionName].client}`);
+  addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${width || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${height || "\u9ED8\u8BA4"}`);
+  prompt2 = change && change.trim() !== "" ? change : prompt2;
+  addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${prompt2}`);
+  let Divide_roles = false;
+  if (prompt2.includes("Scene Composition")) {
+    Divide_roles = true;
+  }
+  addLog(`\u662F\u5426\u542F\u7528\u5206\u89D2\u8272\u6A21\u5F0F (Divide_roles): ${Divide_roles}`);
+  let prompt_data = {};
+  let mainPrompt = "";
+  let other_prompt = "";
+  if (Divide_roles) {
+    addLog("\u5206\u89D2\u8272\u6A21\u5F0F: \u89E3\u6790\u5E26\u5750\u6807\u7684\u63D0\u793A\u8BCD\u5B57\u7B26\u4E32\u3002");
+    prompt_data = parsePromptStringWithCoordinates(prompt2);
+    mainPrompt = prompt_data["Scene Composition"];
+    for (let i = 1; i <= 4; i++) {
+      if (prompt_data[`Character ${i} Prompt`]) {
+        other_prompt = other_prompt + ", " + prompt_data[`Character ${i} Prompt`];
+      }
+    }
+  } else {
+    addLog("\u6807\u51C6\u6A21\u5F0F: \u4F7F\u7528\u8BF7\u6C42\u4E2D\u7684 prompt\u3002");
+    mainPrompt = prompt2;
+  }
+  let { modifiedPrompt, insertions } = await prompt_replace_banana(mainPrompt, other_prompt);
+  if (Divide_roles) {
+    for (let i = 1; i <= 4; i++) {
+      if (prompt_data[`Character ${i} Prompt`]) {
+        modifiedPrompt = modifiedPrompt + " | " + prompt_replace_banana_for_character(prompt_data[`Character ${i} Prompt`], (mainPrompt || "") + " " + (other_prompt || ""));
+      }
+    }

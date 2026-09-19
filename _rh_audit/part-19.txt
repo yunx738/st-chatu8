@@ -1,0 +1,180 @@
+      continue;
+    }
+    if (char === "\\") {
+      escape2 = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (char === "{") depth++;
+      else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          return {
+            jsonStr: text.substring(startIdx, i + 1),
+            start: startIdx,
+            end: i + 1
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+function isAssetManifestPrompt2(text) {
+  if (!text || typeof text !== "string") return false;
+  let normalized = text.trim();
+  if (normalized.includes("\\n") || normalized.includes("\\r")) {
+    normalized = normalized.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  }
+  return /^\s*asset_manifest\s*:/im.test(normalized) || /asset_manifest\s*:\s*\{/i.test(normalized);
+}
+function isValidMediaFileId2(fileId) {
+  if (fileId === null || fileId === void 0) return false;
+  if (typeof fileId !== "string") return false;
+  const trimmed = fileId.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower === "null" || lower === "undefined" || lower === "none" || lower === "nil" || lower === "false") return false;
+  return true;
+}
+function parseAssetManifest2(rawPrompt) {
+  if (!rawPrompt || typeof rawPrompt !== "string") {
+    return { manifest: null, promptText: "", pictures: {}, audios: {}, invalidPictures: [], invalidAudios: [] };
+  }
+  let normalized = rawPrompt.trim();
+  if (normalized.includes("\\n") || normalized.includes("\\r")) {
+    normalized = normalized.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  }
+  let searchContent = normalized;
+  const manifestHeaderMatch = normalized.match(/asset_manifest\s*:/i);
+  let afterHeaderIndex = 0;
+  if (manifestHeaderMatch && typeof manifestHeaderMatch.index === "number") {
+    afterHeaderIndex = manifestHeaderMatch.index + manifestHeaderMatch[0].length;
+    searchContent = normalized.substring(afterHeaderIndex);
+  }
+  const jsonBlock = extractJsonBlock2(searchContent);
+  let manifest = null;
+  let remainingText = normalized;
+  if (jsonBlock) {
+    try {
+      manifest = JSON.parse(jsonBlock.jsonStr);
+    } catch (firstErr) {
+      try {
+        const cleanedJson = jsonBlock.jsonStr.replace(/\\n/g, "\n").replace(/\\r/g, "\n").replace(/,\s*([\]}])/g, "$1");
+        manifest = JSON.parse(cleanedJson);
+      } catch (secondErr) {
+        console.error("[ComfyUIVideo] asset_manifest JSON \u89E3\u6790\u5931\u8D25:", firstErr, jsonBlock.jsonStr);
+        throw new Error(`asset_manifest JSON \u683C\u5F0F\u9519\u8BEF: ${firstErr.message}`);
+      }
+    }
+    const rawJsonEndInFull = afterHeaderIndex + jsonBlock.end;
+    let afterJson = normalized.substring(rawJsonEndInFull).trim();
+    afterJson = afterJson.replace(/^```[a-zA-Z0-9_-]*\s*/, "").replace(/```$/g, "").trim();
+    const subjectIdx = afterJson.search(/subject_definitions\s*:/i);
+    if (subjectIdx !== -1) {
+      remainingText = afterJson.substring(subjectIdx).trim();
+    } else {
+      remainingText = afterJson;
+    }
+  } else {
+    const subjectIdx = normalized.search(/subject_definitions\s*:/i);
+    if (subjectIdx !== -1) {
+      remainingText = normalized.substring(subjectIdx).trim();
+    }
+  }
+  if (remainingText) {
+    remainingText = remainingText.replace(/《(Subject\s*\d+)》/gi, "<$1>").replace(/《(Picture\s*\d+)》/gi, "<$1>").replace(/《(Audio\s*\d+)》/gi, "<$1>");
+  }
+  const pictures = {};
+  const audios = {};
+  const invalidPictures = [];
+  const invalidAudios = [];
+  let isFirstFrameRef = false;
+  let firstFramePicEntityRef = "";
+  if (manifest) {
+    if (Array.isArray(manifest.pictures)) {
+      for (const pic of manifest.pictures) {
+        const label = pic.label || "";
+        const match = label.match(/Picture\s*(\d+)/i);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          const entityRef = (pic.entity_ref || "").trim();
+          if (idx === 1 && (/首帧参考/i.test(entityRef) || entityRef === "\u9996\u5E27\u53C2\u8003\u56FE\u7247")) {
+            isFirstFrameRef = true;
+            firstFramePicEntityRef = entityRef;
+          }
+          if (isValidMediaFileId2(pic.file_id)) {
+            if (idx >= 1 && idx <= 9) {
+              pictures[idx] = pic.file_id.trim();
+            }
+          } else {
+            if (idx === 1 && (/首帧参考/i.test(entityRef) || entityRef === "\u9996\u5E27\u53C2\u8003\u56FE\u7247")) {
+            } else {
+              invalidPictures.push(idx);
+            }
+          }
+        }
+      }
+    }
+    if (Array.isArray(manifest.audios)) {
+      for (const aud of manifest.audios) {
+        const label = aud.label || "";
+        const match = label.match(/Audio\s*(\d+)/i);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          if (isValidMediaFileId2(aud.file_id)) {
+            if (idx >= 1 && idx <= 3) {
+              audios[idx] = aud.file_id.trim();
+            }
+          } else {
+            invalidAudios.push(idx);
+          }
+        }
+      }
+    }
+  }
+  if (remainingText) {
+    for (const idx of invalidAudios) {
+      remainingText = remainingText.replace(new RegExp(`(?:voice_anchor|audio_anchor|voice|audio)\\s*[:\uFF1A]\\s*[<\u300A]Audio\\s*${idx}[>\u300B]`, "gi"), "").replace(new RegExp(`[<\u300A]Audio\\s*${idx}[>\u300B]`, "gi"), "");
+    }
+    for (const idx of invalidPictures) {
+      remainingText = remainingText.replace(new RegExp(`(?:visual_anchor|image_anchor|picture_anchor)\\s*[:\uFF1A]\\s*[<\u300A]Picture\\s*${idx}[>\u300B]`, "gi"), "").replace(new RegExp(`[<\u300A]Picture\\s*${idx}[>\u300B]`, "gi"), "");
+    }
+  }
+  return {
+    manifest,
+    promptText: remainingText || normalized,
+    pictures,
+    audios,
+    invalidPictures,
+    invalidAudios,
+    isFirstFrameRef,
+    firstFramePicEntityRef
+  };
+}
+async function dataToBlob2(data, defaultMime = "image/png") {
+  if (data instanceof Blob) {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Blob([data], { type: defaultMime });
+  }
+  if (typeof data === "string") {
+    if (data.startsWith("data:")) {
+      const commaIdx = data.indexOf(",");
+      const mime = data.substring(5, data.indexOf(";")) || defaultMime;
+      const b64 = data.substring(commaIdx + 1);
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
+    }
+  }
+  throw new Error("\u65E0\u6CD5\u8BC6\u522B\u7684\u6587\u4EF6\u6570\u636E\u683C\u5F0F");
+}

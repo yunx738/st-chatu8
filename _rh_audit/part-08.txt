@@ -1,0 +1,180 @@
+    try {
+      const base64Data = await entry.async("base64");
+      const approxSize = base64Data.length * 0.75;
+      addLog(`[RunningHub] \u6587\u4EF6 ${entry.name}, \u5927\u5C0F\u7EA6: ${(approxSize / 1024).toFixed(1)} KB`);
+      if (approxSize > maxSizeBytes) {
+        maxSizeBytes = approxSize;
+        largestEntry = entry;
+        largestBase64 = base64Data;
+      }
+    } catch (e) {
+      console.warn(`[RunningHub] \u8BFB\u53D6\u6587\u4EF6 ${entry.name} \u5931\u8D25:`, e);
+    }
+  }
+  if (!largestEntry || !largestBase64) {
+    throw new Error("\u672A\u80FD\u6210\u529F\u63D0\u53D6 ZIP \u4E2D\u7684\u6587\u4EF6\u6570\u636E");
+  }
+  const fileName = largestEntry.name.toLowerCase();
+  let mimeType = "image/png";
+  let isVideo = false;
+  if (fileName.endsWith(".mp4")) {
+    mimeType = "video/mp4";
+    isVideo = true;
+  } else if (fileName.endsWith(".webm")) {
+    mimeType = "video/webm";
+    isVideo = true;
+  } else if (fileName.endsWith(".avi")) {
+    mimeType = "video/avi";
+    isVideo = true;
+  } else if (fileName.endsWith(".mov")) {
+    mimeType = "video/quicktime";
+    isVideo = true;
+  } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+    mimeType = "image/jpeg";
+  } else if (fileName.endsWith(".webp")) {
+    mimeType = "image/webp";
+  } else if (fileName.endsWith(".gif")) {
+    mimeType = "image/gif";
+  }
+  addLog(`[RunningHub] \u63D0\u53D6\u6700\u5927\u4E3B\u6587\u4EF6: ${largestEntry.name} (${mimeType}, ${(maxSizeBytes / 1024 / 1024).toFixed(2)} MB)`);
+  if (isVideo && mimeType === "video/mp4") {
+    try {
+      const u8 = await largestEntry.async("uint8array");
+      const rawBlob = new Blob([u8], { type: "video/mp4" });
+      const fixedBlob = await fixMp4Faststart(rawBlob);
+      largestBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result || "";
+          const comma = result.indexOf(",");
+          resolve(comma !== -1 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(fixedBlob);
+      });
+      addLog("[RunningHub] MP4 faststart \u5904\u7406\u5B8C\u6210");
+    } catch (faststartErr) {
+      console.warn("[RunningHub] faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", faststartErr);
+    }
+  }
+  const dataUrl = `data:${mimeType};base64,${largestBase64}`;
+  return { dataUrl, isVideo, fileName: largestEntry.name, mimeType };
+}
+function buildRunningHubWorkflow(rawJson, promptText, negativeText, genSettings) {
+  let jsonStr = rawJson;
+  let seed = parseInt(genSettings.seed);
+  if (isNaN(seed) || seed === -1) {
+    seed = Math.floor(Math.random() * 9007199254740991);
+  }
+  const width = genSettings.width || 1024;
+  const height = genSettings.height || 1024;
+  jsonStr = jsonStr.replace(/"%width%"/g, width).replace(/%width%/g, width);
+  jsonStr = jsonStr.replace(/"%宽度%"/g, width).replace(/%宽度%/g, width);
+  jsonStr = jsonStr.replace(/"%height%"/g, height).replace(/%height%/g, height);
+  jsonStr = jsonStr.replace(/"%高度%"/g, height).replace(/%高度%/g, height);
+  jsonStr = jsonStr.replace(/"%seed%"/g, seed).replace(/%seed%/g, seed);
+  jsonStr = jsonStr.replace(/"%种子%"/g, seed).replace(/%种子%/g, seed);
+  jsonStr = jsonStr.replace(/"%steps%"/g, genSettings.steps || "20").replace(/%steps%/g, genSettings.steps || "20");
+  jsonStr = jsonStr.replace(/"%步数%"/g, genSettings.steps || "20").replace(/%步数%/g, genSettings.steps || "20");
+  jsonStr = jsonStr.replace(/"%视频步数%"/g, genSettings.steps || "20").replace(/%视频步数%/g, genSettings.steps || "20");
+  if (genSettings.model) {
+    jsonStr = jsonStr.replace(/%MODEL_NAME%/g, genSettings.model).replace(/%模型%/g, genSettings.model);
+  }
+  if (genSettings.sampler_name) {
+    jsonStr = jsonStr.replace(/%sampler_name%/g, genSettings.sampler_name).replace(/%采样方法%/g, genSettings.sampler_name);
+  }
+  if (genSettings.vae) {
+    jsonStr = jsonStr.replace(/%vae%/g, genSettings.vae).replace(/%VAE%/g, genSettings.vae);
+  }
+  if (genSettings.scheduler) {
+    jsonStr = jsonStr.replace(/%scheduler%/g, genSettings.scheduler).replace(/%调度器%/g, genSettings.scheduler);
+  }
+  if (genSettings.clip) {
+    jsonStr = jsonStr.replace(/%clip%/g, genSettings.clip).replace(/%CLIP%/g, genSettings.clip);
+  }
+  if (genSettings.cfg) {
+    jsonStr = jsonStr.replace(/"%cfg_scale%"/g, genSettings.cfg).replace(/%cfg_scale%/g, genSettings.cfg);
+    jsonStr = jsonStr.replace(/"%CFG%"/g, genSettings.cfg).replace(/%CFG%/g, genSettings.cfg);
+  }
+  let megapixels = parseFloat(genSettings.megapixels) || 0.9;
+  jsonStr = jsonStr.replace(/"%像素%"/g, megapixels).replace(/%像素%/g, megapixels);
+  jsonStr = jsonStr.replace(/"%megapixels%"/g, megapixels).replace(/%megapixels%/g, megapixels);
+  jsonStr = jsonStr.replace(/"%视频秒数%"/g, genSettings.duration || "4").replace(/%视频秒数%/g, genSettings.duration || "4");
+  jsonStr = jsonStr.replace(/"%duration%"/g, genSettings.duration || "4").replace(/%duration%/g, genSettings.duration || "4");
+  let escapedPrompt = (promptText || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "");
+  jsonStr = jsonStr.replace(/%prompt%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%正面提示词%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%提示词%/g, escapedPrompt);
+  let escapedNegative = (negativeText || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "");
+  jsonStr = jsonStr.replace(/%negative_prompt%/g, escapedNegative);
+  jsonStr = jsonStr.replace(/%负面提示词%/g, escapedNegative);
+  const defaultImgName = (genSettings.defaultImg || "").trim() || "09baa6b5a6d1b6afa83aaad55c7261c9a413f9bdfdea045c49efb5f3303165fa.jpg";
+  const defaultAudName = (genSettings.defaultAud || "").trim() || "eded6ff68fe3fda18f0f31ecfbb1ff6b7494c2d17ff35b32d3a5ad7ccecf03f4.m4a";
+  const uploadedMedia = genSettings.uploadedMedia || { img: {}, aud: {} };
+  for (let i = 1; i <= 9; i++) {
+    const choice = genSettings[`img_ctrl_${i}`] || "bypass";
+    const switchVal = choice === "open" || choice === "1" || choice === "0" ? 1 : 2;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u56FE\u7247${i}\u63A7\u5236%"`, "g"), switchVal);
+    const imgName = uploadedMedia.img?.[i] || defaultImgName;
+    jsonStr = jsonStr.replace(new RegExp(`%\u56FE\u7247${i}%`, "g"), imgName);
+  }
+  for (let i = 1; i <= 3; i++) {
+    const choice = genSettings[`aud_ctrl_${i}`] || "bypass";
+    const switchVal = choice === "open" || choice === "1" || choice === "0" ? 1 : 2;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u97F3\u9891${i}\u63A7\u5236%"`, "g"), switchVal);
+    const audName = uploadedMedia.aud?.[i] || defaultAudName;
+    jsonStr = jsonStr.replace(new RegExp(`%\u97F3\u9891${i}%`, "g"), audName);
+  }
+  let promptObj;
+  try {
+    promptObj = JSON.parse(jsonStr);
+  } catch (err) {
+    console.error("[RunningHub] JSON \u89E3\u6790\u5931\u8D25:", jsonStr);
+    throw new Error("\u5DE5\u4F5C\u6D41 JSON \u6784\u5EFA\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u63D0\u793A\u8BCD\u6216\u6A21\u677F\u683C\u5F0F\u3002");
+  }
+  let rawTplObj = {};
+  try {
+    rawTplObj = JSON.parse(rawJson);
+  } catch (e) {
+  }
+  for (let i = 1; i <= 9; i++) {
+    const choice = genSettings[`img_ctrl_${i}`] || "bypass";
+    let nodeMode = 0;
+    if (choice === "bypass" || choice === "4") nodeMode = 4;
+    else if (choice === "mute" || choice === "2") nodeMode = 2;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u56FE\u7247${i}%`) || rawNodeStr.includes(`%\u56FE\u7247${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  for (let i = 1; i <= 3; i++) {
+    const choice = genSettings[`aud_ctrl_${i}`] || "bypass";
+    let nodeMode = 0;
+    if (choice === "bypass" || choice === "4") nodeMode = 4;
+    else if (choice === "mute" || choice === "2") nodeMode = 2;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u97F3\u9891${i}%`) || rawNodeStr.includes(`%\u97F3\u9891${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  return { promptObj, seedUsed: seed };
+}
+function extractNodeInfoListFromWorkflow(rawJson, promptObj) {
+  const nodeInfoList = [];
+  let rawObj = null;
+  try {
+    rawObj = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson;
+  } catch (e) {
+    console.warn("[RunningHub v2] \u89E3\u6790\u539F\u59CB\u5DE5\u4F5C\u6D41 JSON \u5931\u8D25\uFF0C\u65E0\u6CD5\u8FDB\u884C diff \u6BD4\u5BF9:", e);
+  }
+  if (rawObj && typeof rawObj === "object" && promptObj && typeof promptObj === "object") {
+    for (const [nodeId, modifiedNode] of Object.entries(promptObj)) {
+      if (!modifiedNode || typeof modifiedNode !== "object") continue;

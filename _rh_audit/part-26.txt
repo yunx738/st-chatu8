@@ -1,0 +1,180 @@
+    div2.style.position = "relative";
+    div2.style.overflow = "hidden";
+    const bigPlayBtn = doc2.createElement("div");
+    bigPlayBtn.className = "st-chatu8-big-play-btn";
+    bigPlayBtn.innerHTML = "\u25B6";
+    bigPlayBtn.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 52px;
+        height: 52px;
+        background: rgba(0, 0, 0, 0.65);
+        color: #fff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        padding-left: 3px;
+        cursor: pointer;
+        z-index: 5;
+        backdrop-filter: blur(8px);
+        border: 1.5px solid rgba(255, 255, 255, 0.45);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        user-select: none;
+    `;
+    const controlsBar = doc2.createElement("div");
+    controlsBar.className = "st-chatu8-mini-player-controls";
+    controlsBar.style.cssText = `
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 12px;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.88));
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        z-index: 6;
+        transition: opacity 0.3s ease;
+        opacity: 1;
+        user-select: none;
+    `;
+    controlsBar.onclick = (e) => e.stopPropagation();
+    const progressContainer = doc2.createElement("div");
+    progressContainer.style.cssText = `
+        width: 100%;
+        height: 14px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        position: relative;
+    `;
+    const progressBarBg = doc2.createElement("div");
+    progressBarBg.style.cssText = `
+        width: 100%;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.35);
+        border-radius: 3px;
+        position: relative;
+        overflow: hidden;
+    `;
+    const progressFill = doc2.createElement("div");
+    progressFill.style.cssText = `
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+        border-radius: 3px;
+        transition: width 0.1s linear;
+    `;
+    progressBarBg.appendChild(progressFill);
+    progressContainer.appendChild(progressBarBg);
+    const btnRow = doc2.createElement("div");
+    btnRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #fff;
+        font-size: 13px;
+    `;
+    const leftControls = doc2.createElement("div");
+    leftControls.style.cssText = "display: flex; align-items: center; gap: 8px;";
+    const playPauseBtn = doc2.createElement("div");
+    playPauseBtn.innerHTML = "\u25B6";
+    playPauseBtn.style.cssText = `
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        border-radius: 4px;
+    `;
+    const timeDisplay = doc2.createElement("span");
+    timeDisplay.style.cssText = "font-size: 12px; opacity: 0.9; font-family: monospace; letter-spacing: 0.5px;";
+    timeDisplay.textContent = "0:00 / 0:00";
+    leftControls.appendChild(playPauseBtn);
+    leftControls.appendChild(timeDisplay);
+    const rightControls = doc2.createElement("div");
+    rightControls.style.cssText = "display: flex; align-items: center; gap: 8px;";
+    const muteBtn = doc2.createElement("div");
+    muteBtn.innerHTML = media2.muted ? "\u{1F507}" : "\u{1F50A}";
+    muteBtn.title = media2.muted ? "\u5F00\u542F\u58F0\u97F3" : "\u9759\u97F3";
+    muteBtn.style.cssText = `
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        border-radius: 4px;
+    `;
+    const fullscreenBtn = doc2.createElement("div");
+    fullscreenBtn.innerHTML = "\u26F6";
+    fullscreenBtn.title = "\u5168\u5C4F\u64AD\u653E";
+    fullscreenBtn.style.cssText = `
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 4px;
+        user-select: none;
+    `;
+    function isCurrentFullscreen() {
+      const topDoc = window.top ? window.top.document : doc2;
+      return !!(doc2.fullscreenElement || doc2.webkitFullscreenElement || topDoc && (topDoc.fullscreenElement || topDoc.webkitFullscreenElement));
+    }
+    function toggleVideoFullscreen(e) {
+      if (e) e.stopPropagation();
+      const topDoc = window.top ? window.top.document : doc2;
+      const targetContainer = div2;
+      if (isCurrentFullscreen()) {
+        const efs = doc2.exitFullscreen || doc2.webkitExitFullscreen || topDoc && (topDoc.exitFullscreen || topDoc.webkitExitFullscreen);
+        if (efs) {
+          try {
+            const activeDoc2 = doc2.fullscreenElement ? doc2 : topDoc.fullscreenElement ? topDoc : doc2;
+            const p = efs.call(activeDoc2);
+            if (p && p.catch) p.catch(() => {
+            });
+          } catch (_) {
+          }
+        }
+      } else {
+        const rfs = targetContainer.requestFullscreen || targetContainer.webkitRequestFullscreen || targetContainer.mozRequestFullScreen || targetContainer.msRequestFullscreen;
+        if (rfs) {
+          try {
+            const p = rfs.call(targetContainer);
+            if (p && p.catch) {
+              p.catch(() => {
+                if (media2.webkitEnterFullscreen) media2.webkitEnterFullscreen();
+              });
+            }
+          } catch (_) {
+            if (media2.webkitEnterFullscreen) media2.webkitEnterFullscreen();
+          }
+        } else if (media2.webkitEnterFullscreen) {
+          media2.webkitEnterFullscreen();
+        }
+      }
+    }
+    fullscreenBtn.onclick = toggleVideoFullscreen;
+    const rotateBtn = doc2.createElement("div");
+    rotateBtn.innerHTML = '<i class="fa-solid fa-rotate"></i>';
+    rotateBtn.title = "\u6A2A\u5C4F\u65CB\u8F6C90\u5EA6";
+    rotateBtn.style.cssText = `
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;

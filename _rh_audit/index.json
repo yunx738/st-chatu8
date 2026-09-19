@@ -1,0 +1,252 @@
+[
+  {
+    "path": "_rh_audit/part-00.txt",
+    "functions": [],
+    "start": "        if (format.includes(\"mp4\") || format.includes(\"h264\")) {\n          mimeType = \"mp4\";\n       ",
+    "end": "age: imageUrl, change: change_ || \"\", isVideo, format: mediaFormat, genParams: _comfy_gen_params };\n"
+  },
+  {
+    "path": "_rh_audit/part-01.txt",
+    "functions": [
+      "comfyuigenerate",
+      "initializeComfyuiListener",
+      "replaceWithcomfyui",
+      "getDirectHeaders",
+      "getImageFromTurnData",
+      "dataUrlToBlob",
+      "resolveGrokGenerationsUrl"
+    ],
+    "start": "    }\n  } catch (error) {\n    const rawMessage = error instanceof Error ? error.message : String(err",
+    "end": "rokGenerationsUrl(apiUrl, customEndpoint) {\n  let base = (apiUrl || \"\").trim().replace(/\\/+$/, \"\");\n"
+  },
+  {
+    "path": "_rh_audit/part-02.txt",
+    "functions": [
+      "resolveGrokEditsUrl",
+      "collectBananaReferenceImages",
+      "readOpenAIResponse",
+      "generateBananaImage"
+    ],
+    "start": "  if (!base) return \"\";\n  if (customEndpoint && customEndpoint.trim()) {\n    const custom = customEn",
+    "end": "ser);\n      if (userImage) userContent2.push({ type: \"image_url\", image_url: { url: userImage } });\n"
+  },
+  {
+    "path": "_rh_audit/part-03.txt",
+    "functions": [],
+    "start": "      const modelContent = [];\n      if (turn.model?.text) modelContent.push({ type: \"text\", text: t",
+    "end": "ompt_data[`Character ${i} Prompt`], (mainPrompt || \"\") + \" \" + (other_prompt || \"\"));\n      }\n    }\n"
+  },
+  {
+    "path": "_rh_audit/part-04.txt",
+    "functions": [],
+    "start": "  }\n  const bananaSettings = extension_settings49[extensionName].banana;\n  const { model, editModel,",
+    "end": "reset = conversationPresets[conversationPresetId] || { fixedPrompt: \"\" };\n    const finalPrompt = [\n"
+  },
+  {
+    "path": "_rh_audit/part-05.txt",
+    "functions": [],
+    "start": "      preset.fixedPrompt,\n      insertions[\"\\u524D\\u7F6E\\u524D\"],\n      insertions[\"\\u524D\\u7F6E\\u54",
+    "end": "request to: ${requestUrl}`);\n  addLog(`[Banana] Payload: ${JSON.stringify(requestBody, null, 2)}`);\n"
+  },
+  {
+    "path": "_rh_audit/part-06.txt",
+    "functions": [
+      "bananaGenerate"
+    ],
+    "start": "  try {\n    taskQueue.updateStatus(taskId, \"running\");\n    const response = await fetch(requestUrl, ",
+    "end": "mageUrl,\n        prompt: prompt2,\n        change: cleanedChange,\n        isVideo: isVideo || false,\n"
+  },
+  {
+    "path": "_rh_audit/part-07.txt",
+    "functions": [
+      "handleCancelBananaTask",
+      "initializeBananaListener",
+      "replaceWithBanana",
+      "extractLargestMediaFromZip"
+    ],
+    "start": "        format: format || \"image\"\n      });\n      addLog(`[Banana] \\u53D1\\u9001ComfyUI\\u5C40\\u90E8\\u",
+    "end": "y = null;\n  let maxSizeBytes = -1;\n  let largestBase64 = null;\n  for (const entry of fileEntries) {\n"
+  },
+  {
+    "path": "_rh_audit/part-08.txt",
+    "functions": [
+      "buildRunningHubWorkflow",
+      "extractNodeInfoListFromWorkflow"
+    ],
+    "start": "    try {\n      const base64Data = await entry.async(\"base64\");\n      const approxSize = base64Data.",
+    "end": "Object.entries(promptObj)) {\n      if (!modifiedNode || typeof modifiedNode !== \"object\") continue;\n"
+  },
+  {
+    "path": "_rh_audit/part-09.txt",
+    "functions": [
+      "generateRunningHubImage"
+    ],
+    "start": "      const rawNode = rawObj[nodeId];\n      if (!rawNode) {\n        console.warn(`[RunningHub v2] \\u",
+    "end": "ettings3.runninghub_steps ?? settings3.runninghub_val_steps,\n    model: settings3.runninghub_model,\n"
+  },
+  {
+    "path": "_rh_audit/part-10.txt",
+    "functions": [],
+    "start": "    sampler_name: settings3.runninghub_sampler_name,\n    vae: settings3.runninghub_vae,\n    schedule",
+    "end": "eBlob.type.includes(\"video/\")) {\n        isVideo = true;\n        mediaFormat = \"video/mp4\";\n      }\n"
+  },
+  {
+    "path": "_rh_audit/part-11.txt",
+    "functions": [
+      "runninghubgenerate",
+      "initializeRunningHubListener",
+      "replaceWithRunningHub",
+      "resolveUploadApiKey"
+    ],
+    "start": "    }\n    if (String(settings3.convertToJpegStorage) === \"true\" && !isVideo) {\n      finalImageData ",
+    "end": "dMediaWithCache\n});\n\n\nasync function resolveUploadApiKey(apiKey) {\n  let key = apiKey;\n  if (key) {\n"
+  },
+  {
+    "path": "_rh_audit/part-12.txt",
+    "functions": [
+      "formatRunningHubApiError",
+      "extractLargestMediaFromZip2",
+      "extractJsonBlock",
+      "isAssetManifestPrompt",
+      "isValidMediaFileId",
+      "parseAssetManifest"
+    ],
+    "start": "    const keys = parseRunningHubApiKeys(key);\n    key = keys[0] || null;\n  }\n  if (!key) {\n    key =",
+    "end": "ex + manifestHeaderMatch[0].length;\n    searchContent = normalized.substring(afterHeaderIndex);\n  }\n"
+  },
+  {
+    "path": "_rh_audit/part-13.txt",
+    "functions": [
+      "dataToBlob",
+      "createBlankPngBlob",
+      "uploadBlankPngWithCache"
+    ],
+    "start": "  const jsonBlock = extractJsonBlock(searchContent);\n  let manifest = null;\n  let remainingText = no",
+    "end": "u4E0A\\u4F20\\u6210\\u529F: ${uploadedFileName}`);\n  cache[fileId] = {\n    fileName: uploadedFileName,\n"
+  },
+  {
+    "path": "_rh_audit/part-14.txt",
+    "functions": [
+      "createSilentWavBlob",
+      "uploadBlankAudioWithCache",
+      "uploadImageBlobWithCache",
+      "uploadMediaWithCache"
+    ],
+    "start": "    timestamp: now\n  };\n  saveSettingsDebounced31();\n  return uploadedFileName;\n}\nfunction createSil",
+    "end": "47\\u7D20\\u6750\\u9884\\u5904\\u7406\\u5931\\u8D25\\uFF0C\\u4F7F\\u7528\\u539F\\u59CB\\u6587\\u4EF6:\", procErr);\n"
+  },
+  {
+    "path": "_rh_audit/part-15.txt",
+    "functions": [
+      "buildRunningHubRefVideoWorkflow",
+      "generateRunningHubRefVideo"
+    ],
+    "start": "    }\n  }\n  addLog(`[RunningHubRefVideo] \\u6B63\\u5728\\u4E0A\\u4F20\\u6587\\u4EF6\\u5230 RunningHub (${fi",
+    "end": "\");\n    const blankFileName = await uploadBlankPngWithCache(uploadApiKey);\n    if (blankFileName) {\n"
+  },
+  {
+    "path": "_rh_audit/part-16.txt",
+    "functions": [],
+    "start": "      uploadedImages[1] = blankFileName;\n      addLog(`[RunningHubVideo] \\u7A7A\\u767D\\u56FE\\u7247\\u5",
+    "end": "l.match(/\\.mp4($|\\?)/i)) {\n        try {\n          processedBlob = await fixMp4Faststart(fileBlob);\n"
+  },
+  {
+    "path": "_rh_audit/part-17.txt",
+    "functions": [
+      "executeRunningHubVideoDirectTest"
+    ],
+    "start": "          addLog(\"[RunningHubVideo] \\u76F4\\u8FDE MP4 faststart \\u5904\\u7406\\u5B8C\\u6210\");\n        }",
+    "end": "D\"})\\uFF0C\\u5DF2\\u8017\\u65F6\\u7EA6 ${attempts * 3} \\u79D2...`);\n      }\n      if (attempts > 300) {\n"
+  },
+  {
+    "path": "_rh_audit/part-18.txt",
+    "functions": [
+      "registerActiveComfyUIVideoTask",
+      "unregisterActiveComfyUIVideoTask",
+      "abortComfyUIVideoTask",
+      "formatComfyUIApiError",
+      "extractJsonBlock2"
+    ],
+    "start": "        throw new Error(\"\\u89C6\\u9891\\u751F\\u6210\\u8D85\\u65F6 (\\u5DF2\\u7B49\\u5F8515\\u5206\\u949F)\");\n",
+    "end": "artIdx; i < text.length; i++) {\n    const char = text[i];\n    if (escape2) {\n      escape2 = false;\n"
+  },
+  {
+    "path": "_rh_audit/part-19.txt",
+    "functions": [
+      "isAssetManifestPrompt2",
+      "isValidMediaFileId2",
+      "parseAssetManifest2",
+      "dataToBlob2"
+    ],
+    "start": "      continue;\n    }\n    if (char === \"\\\\\") {\n      escape2 = true;\n      continue;\n    }\n    if (c",
+    "end": "   }\n  }\n  throw new Error(\"\\u65E0\\u6CD5\\u8BC6\\u522B\\u7684\\u6587\\u4EF6\\u6570\\u636E\\u683C\\u5F0F\");\n}\n"
+  },
+  {
+    "path": "_rh_audit/part-20.txt",
+    "functions": [
+      "createBlankPngBlob2",
+      "uploadBlankPngToComfyUIWithCache",
+      "createSilentWavBlob2",
+      "uploadBlankAudioToComfyUIWithCache",
+      "uploadImageBlobToComfyUIWithCache",
+      "uploadMediaToComfyUIWithCache"
+    ],
+    "start": "function createBlankPngBlob2(width = 512, height = 512, color = \"#000000\") {\n  return new Promise((r",
+    "end": "tem && item.timestamp && now - item.timestamp > UPLOAD_CACHE_EXPIRY_MS2) {\n      delete cache[key];\n"
+  },
+  {
+    "path": "_rh_audit/part-21.txt",
+    "functions": [
+      "buildComfyUIRefVideoWorkflow",
+      "generateComfyUIRefVideo"
+    ],
+    "start": "      cacheChanged = true;\n    }\n  }\n  if (cache[fileId] && cache[fileId].fileName) {\n    const cach",
+    "end": "{fileId})...`);\n      const uploadedName = await uploadMediaToComfyUIWithCache(fileId, \"img\", url);\n"
+  },
+  {
+    "path": "_rh_audit/part-22.txt",
+    "functions": [],
+    "start": "      if (uploadedName) {\n        uploadedImages[idx] = uploadedName;\n      }\n    }\n    if (isFirstF",
+    "end": " in outputs) {\n          const val = outputs[key];\n          if (val.gifs && val.gifs.length > 0) {\n"
+  },
+  {
+    "path": "_rh_audit/part-23.txt",
+    "functions": [
+      "executeComfyUIVideoDirectTest"
+    ],
+    "start": "            const gif = val.gifs[0];\n            foundFile = {\n              filename: gif.filename,",
+    "end": "OST\" });\n      } catch (e) {\n      }\n      throw new Error(\"\\u4EFB\\u52A1\\u5DF2\\u53D6\\u6D88\");\n    }\n"
+  },
+  {
+    "path": "_rh_audit/part-24.txt",
+    "functions": [
+      "_dataUrlToBlob",
+      "setShowImagePreview",
+      "_chatu8RespDedupEnabled",
+      "trackImageResponseHandler",
+      "untrackImageResponseHandler"
+    ],
+    "start": "    attempts++;\n    if (attempts % 5 === 0) {\n      notify(`ComfyUI \\u89C6\\u9891\\u751F\\u6210\\u4E2D\\u",
+    "end": "try {\n    eventSource25.removeListener(EventType.GENERATE_IMAGE_RESPONSE, handler);\n  } catch (_) {\n"
+  },
+  {
+    "path": "_rh_audit/part-25.txt",
+    "functions": [
+      "createAndShowImage"
+    ],
+    "start": "  }\n}\nfunction createAndShowImage(container, imageUrl, alt, button, change, isVideo = false, origina",
+    "end": "dia2.setAttribute(\"x5-playsinline\", \"true\");\n    media2.setAttribute(\"x5-video-player-type\", \"h5\");\n"
+  },
+  {
+    "path": "_rh_audit/part-26.txt",
+    "functions": [],
+    "start": "    div2.style.position = \"relative\";\n    div2.style.overflow = \"hidden\";\n    const bigPlayBtn = doc",
+    "end": "splay: flex;\n        align-items: center;\n        justify-content: center;\n        font-size: 14px;\n"
+  },
+  {
+    "path": "_rh_audit/part-27.txt",
+    "functions": [],
+    "start": "        border-radius: 4px;\n        user-select: none;\n        transition: color 0.2s ease;\n    `;\n ",
+    "end": "  div2.classList.remove(\"st-chatu8-fullscreen-active\");\n        if (media2.paused && !isLandscape) {"
+  }
+]

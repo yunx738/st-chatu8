@@ -1,0 +1,180 @@
+    }
+  }
+  addLog(`[RunningHubRefVideo] \u6B63\u5728\u4E0A\u4F20\u6587\u4EF6\u5230 RunningHub (${fileName}, ${(fileBlob.size / 1024).toFixed(1)} KB)...`);
+  const formData = new FormData();
+  formData.append("file", fileBlob, fileName);
+  formData.append("apiKey", validApiKey);
+  formData.append("fileType", "input");
+  const res = await fetch("https://www.runninghub.ai/task/openapi/upload", {
+    method: "POST",
+    body: formData
+  });
+  const resData = await res.json();
+  if (resData.code !== 0 || !resData.data || !resData.data.fileName) {
+    throw new Error(`RunningHub \u6587\u4EF6\u4E0A\u4F20\u5931\u8D25: ${resData.msg || "\u672A\u77E5\u9519\u8BEF"}`);
+  }
+  const uploadedFileName = resData.data.fileName;
+  addLog(`[RunningHubRefVideo] \u4E0A\u4F20\u6210\u529F: ${fileId} -> ${uploadedFileName}`);
+  cache[fileId] = {
+    fileName: uploadedFileName,
+    timestamp: now
+  };
+  saveSettingsDebounced31();
+  return uploadedFileName;
+}
+function buildRunningHubRefVideoWorkflow(rawJson, promptText, uploadedImages, uploadedAudios, genSettings) {
+  let jsonStr = rawJson;
+  let seed = parseInt(genSettings.seed);
+  if (isNaN(seed) || seed === -1) {
+    seed = Math.floor(Math.random() * 9007199254740991);
+  }
+  jsonStr = jsonStr.replace(/"%种子%"/g, seed).replace(/"%seed%"/g, seed);
+  jsonStr = jsonStr.replace(/"%步数%"/g, genSettings.steps || "6").replace(/%步数%/g, genSettings.steps || "6");
+  jsonStr = jsonStr.replace(/"%视频步数%"/g, genSettings.steps || "6").replace(/%视频步数%/g, genSettings.steps || "6");
+  let megapixels = parseFloat(genSettings.megapixels) || 0.9;
+  jsonStr = jsonStr.replace(/"%像素%"/g, megapixels).replace(/"%megapixels%"/g, megapixels);
+  jsonStr = jsonStr.replace(/"%视频秒数%"/g, genSettings.duration || "4").replace(/"%duration%"/g, genSettings.duration || "4");
+  let escapedPrompt = (promptText || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "");
+  jsonStr = jsonStr.replace(/%提示词%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%prompt%/g, escapedPrompt);
+  jsonStr = jsonStr.replace(/%正面提示词%/g, escapedPrompt);
+  const fallbackImgName = (genSettings.defaultImg || "").trim() || genSettings.blankImg || uploadedImages[1] || "09baa6b5a6d1b6afa83aaad55c7261c9a413f9bdfdea045c49efb5f3303165fa.jpg";
+  const fallbackAudName = (genSettings.defaultAud || "").trim() || genSettings.blankAud || uploadedAudios[1] || "eded6ff68fe3fda18f0f31ecfbb1ff6b7494c2d17ff35b32d3a5ad7ccecf03f4.m4a";
+  for (let i = 1; i <= 9; i++) {
+    const isEnabled = Boolean(uploadedImages[i]);
+    const switchVal = isEnabled ? 1 : 2;
+    const imgName = uploadedImages[i] || fallbackImgName;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u56FE\u7247${i}\u63A7\u5236%"`, "g"), switchVal);
+    jsonStr = jsonStr.replace(new RegExp(`%\u56FE\u7247${i}%`, "g"), imgName);
+  }
+  for (let i = 1; i <= 3; i++) {
+    const isEnabled = Boolean(uploadedAudios[i]);
+    const switchVal = isEnabled ? 1 : 2;
+    const audName = uploadedAudios[i] || fallbackAudName;
+    jsonStr = jsonStr.replace(new RegExp(`"%\u97F3\u9891${i}\u63A7\u5236%"`, "g"), switchVal);
+    jsonStr = jsonStr.replace(new RegExp(`%\u97F3\u9891${i}%`, "g"), audName);
+  }
+  let promptObj;
+  try {
+    promptObj = JSON.parse(jsonStr);
+  } catch (err) {
+    console.error("[RunningHubRefVideo] \u5DE5\u4F5C\u6D41 JSON \u89E3\u6790\u5931\u8D25:", jsonStr);
+    throw new Error("\u53C2\u8003\u89C6\u9891\u5DE5\u4F5C\u6D41 JSON \u6784\u5EFA\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6A21\u677F\u683C\u5F0F");
+  }
+  let rawTplObj = {};
+  try {
+    rawTplObj = JSON.parse(rawJson);
+  } catch (e) {
+  }
+  for (let i = 1; i <= 9; i++) {
+    const isEnabled = Boolean(uploadedImages[i]);
+    const nodeMode = isEnabled ? 0 : 4;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u56FE\u7247${i}%`) || rawNodeStr.includes(`%\u56FE\u7247${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  for (let i = 1; i <= 3; i++) {
+    const isEnabled = Boolean(uploadedAudios[i]);
+    const nodeMode = isEnabled ? 0 : 4;
+    for (const [nodeId, rawNode] of Object.entries(rawTplObj)) {
+      const rawNodeStr = JSON.stringify(rawNode);
+      if (rawNodeStr.includes(`%\u97F3\u9891${i}%`) || rawNodeStr.includes(`%\u97F3\u9891${i}\u63A7\u5236%`)) {
+        if (promptObj[nodeId]) {
+          promptObj[nodeId].mode = nodeMode;
+        }
+      }
+    }
+  }
+  return { promptObj, seedUsed: seed };
+}
+async function generateRunningHubRefVideo({ prompt: rawPrompt, width: Xwidth, height: Xheight, change }) {
+  clearLog();
+  const targetPrompt = change || rawPrompt || "";
+  addLog("[RunningHubVideo] \u5F00\u59CB\u89E3\u6790 asset_manifest \u63D0\u793A\u8BCD...");
+  const { manifest, promptText, pictures, audios, invalidPictures, invalidAudios, isFirstFrameRef } = parseAssetManifest(targetPrompt);
+  const hasExtraRefImages = Object.keys(pictures).some((k) => String(k) !== "1");
+  const isImg2Vid = isFirstFrameRef && !hasExtraRefImages;
+  const taskType = isImg2Vid ? TaskType.RUNNINGHUB_IMG2VID : TaskType.RUNNINGHUB_REF2VID;
+  const taskTypeName = isImg2Vid ? "RunningHub \u56FE\u751F\u89C6\u9891" : "RunningHub \u53C2\u8003\u751F\u89C6\u9891";
+  const taskId = taskQueue.addTask({
+    name: (targetPrompt || "").substring(0, 30) + (targetPrompt.length > 30 ? "..." : ""),
+    type: taskType,
+    prompt: targetPrompt
+  });
+  const startTime = Date.now();
+  if (!isPluginToastDisabled()) {
+    toastr.info(`\u{1F3AC} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
+  }
+  const settings3 = extension_settings51[extensionName];
+  const rawApiKey = settings3.runninghub_apiKey;
+  if (!rawApiKey) {
+    taskQueue.completeTask(taskId, false);
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 RunningHub API Key");
+  }
+  const uploadApiKey = await getUsableRunningHubKeyForUpload();
+  if (invalidPictures && invalidPictures.length > 0) {
+    addLog(`[RunningHubVideo] \u5FFD\u7565\u672A\u7ED1\u5B9A\u6216\u7A7A\u6587\u4EF6\u56FE\u7247\u8D44\u4EA7: ${invalidPictures.map((i) => `Picture ${i}`).join(", ")}`);
+  }
+  if (invalidAudios && invalidAudios.length > 0) {
+    addLog(`[RunningHubVideo] \u5FFD\u7565\u672A\u7ED1\u5B9A\u6216\u7A7A\u6587\u4EF6\u97F3\u9891\u8D44\u4EA7: ${invalidAudios.map((i) => `Audio ${i}`).join(", ")}`);
+  }
+  const picKeys = Object.keys(pictures);
+  const audKeys = Object.keys(audios);
+  addLog(`[RunningHubVideo] \u89E3\u6790\u5B8C\u6210: \u5305\u542B ${picKeys.length} \u4E2A\u6709\u6548\u56FE\u7247\u53C2\u8003 (${picKeys.map((k) => `Picture ${k}`).join(", ") || "\u65E0"}), ${audKeys.length} \u4E2A\u6709\u6548\u97F3\u9891\u53C2\u8003 (${audKeys.map((k) => `Audio ${k}`).join(", ") || "\u65E0"})`);
+  const uploadedImages = {};
+  for (const [idx, fileId] of Object.entries(pictures)) {
+    addLog(`[RunningHubVideo] \u5904\u7406 Picture ${idx} (file_id: ${fileId})...`);
+    const uploadedName = await uploadMediaWithCache(fileId, "img", uploadApiKey);
+    if (uploadedName) {
+      uploadedImages[idx] = uploadedName;
+    }
+  }
+  if (isFirstFrameRef) {
+    addLog("[RunningHubVideo] \u68C0\u6D4B\u5230\u9996\u5E27\u53C2\u8003\u56FE\u7247\u9700\u6C42\uFF0C\u6B63\u5728\u63D0\u53D6\u89E6\u53D1\u5904\u56FE\u7247...");
+    let triggerImageSource = null;
+    const promptTag = rawPrompt || "";
+    if (promptTag) {
+      try {
+        triggerImageSource = await getItemBlob(promptTag);
+      } catch (e) {
+        console.warn("[RunningHubVideo] getItemBlob \u83B7\u53D6\u5931\u8D25\uFF0C\u5C1D\u8BD5 getItemImg:", e);
+      }
+      if (!triggerImageSource) {
+        try {
+          const [imgData] = await getItemImg(promptTag);
+          if (imgData) {
+            triggerImageSource = imgData;
+          }
+        } catch (e2) {
+          console.warn("[RunningHubVideo] getItemImg \u83B7\u53D6\u5931\u8D25:", e2);
+        }
+      }
+    }
+    if (triggerImageSource) {
+      const cacheKey = typeof CryptoJS !== "undefined" && CryptoJS.MD5 ? CryptoJS.MD5(promptTag || String(Date.now())).toString() : (promptTag || String(Date.now())).replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 32);
+      const uploadedFirstFrame = await uploadImageBlobWithCache(triggerImageSource, cacheKey, uploadApiKey);
+      if (uploadedFirstFrame) {
+        uploadedImages[1] = uploadedFirstFrame;
+        addLog(`[RunningHubVideo] \u6210\u529F\u7ED1\u5B9A\u89E6\u53D1\u5904\u56FE\u7247\u4E3A Picture 1 -> ${uploadedFirstFrame}`);
+      }
+    } else {
+      addLog("[RunningHubVideo] \u672A\u627E\u5230\u89E6\u53D1\u5904\u5DF2\u6709\u56FE\u7247\uFF0C\u5C06\u5C1D\u8BD5\u4F7F\u7528\u9884\u8BBE\u8D44\u4EA7\u6216\u7A7A\u767D\u515C\u5E95...");
+    }
+  }
+  const uploadedAudios = {};
+  for (const [idx, fileId] of Object.entries(audios)) {
+    addLog(`[RunningHubVideo] \u5904\u7406 Audio ${idx} (file_id: ${fileId})...`);
+    const uploadedName = await uploadMediaWithCache(fileId, "aud", uploadApiKey);
+    if (uploadedName) {
+      uploadedAudios[idx] = uploadedName;
+    }
+  }
+  if (Object.keys(uploadedImages).length === 0) {
+    addLog("[RunningHubVideo] \u68C0\u6D4B\u5230\u65E0\u56FE\u7247\u53C2\u8003\u8D44\u4EA7\uFF0C\u6B63\u5728\u751F\u6210\u7A7A\u767D PNG \u4F5C\u4E3A\u7B2C\u4E00\u5F20\u56FE\u7247 (Picture 1) \u515C\u5E95...");
+    const blankFileName = await uploadBlankPngWithCache(uploadApiKey);
+    if (blankFileName) {

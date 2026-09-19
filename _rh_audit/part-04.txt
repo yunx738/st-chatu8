@@ -1,0 +1,180 @@
+  }
+  const bananaSettings = extension_settings49[extensionName].banana;
+  const { model, editModel, videoModel, apiUrl, apiKey, conversationPresets, conversationPresetId, editPresetId, videoPresetId, aspectRatio } = bananaSettings;
+  const imageSize = (bananaSettings.imageSize || "").trim() || "1024x1024";
+  const useGrokFormat = String(bananaSettings.useGrokFormat) === "true";
+  const isEditMode = !!(change && change.includes("{\u4FEE\u56FE}") || retouchImage);
+  const isVideoMode = !!(change && change.includes("{\u89C6\u9891}"));
+  const effectiveModel = isVideoMode ? videoModel || model : isEditMode ? editModel || model : model;
+  addLog(`[Banana] Starting image generation with model: ${effectiveModel}${isEditMode ? " (\u4FEE\u56FE\u6A21\u5F0F)" : isVideoMode ? " (\u89C6\u9891\u6A21\u5F0F)" : ""}`);
+  let _banana_gen_params = null;
+  const _bananaSnapshot = (presetId, finalPromptText) => buildGenParams("Banana", {
+    model: effectiveModel,
+    yushe: presetId,
+    promptReplaceId: bananaSettings.prompt_replace_id || "\u9ED8\u8BA4",
+    resolvedPrompt: finalPromptText,
+    imageSize: effectiveModel.startsWith("imagen") ? void 0 : imageSize,
+    aspectRatio: effectiveModel.startsWith("imagen") ? aspectRatio : void 0
+  });
+  if (useGrokFormat && !change.includes("{\u89C6\u9891}")) {
+    addLog(`[Banana] \u542F\u7528 Grok / OpenAI \u539F\u751F\u56FE\u50CF\u63A5\u53E3\u6A21\u5F0F${isEditMode ? " (\u4FEE\u56FE\u6A21\u5F0F)" : ""}`);
+    const grokEndpointType = bananaSettings.grokEndpointType || "auto";
+    const grokCustomEndpoint = bananaSettings.grokCustomEndpoint || "";
+    const grokRefImageParam = bananaSettings.grokRefImageParam || "auto";
+    const activePresetId = isEditMode ? editPresetId || "\u9ED8\u8BA4" : conversationPresetId;
+    const grokPreset = conversationPresets[activePresetId] || { fixedPrompt: "", postfixPrompt: "" };
+    let grokFinalPrompt;
+    if (isEditMode) {
+      const promptText = retouchPrompt || modifiedPrompt;
+      grokFinalPrompt = [grokPreset.fixedPrompt, promptText, grokPreset.postfixPrompt].filter(Boolean).join(", ");
+      addLog(`[Banana] Grok prompt (\u4FEE\u56FE): ${grokFinalPrompt}`);
+    } else {
+      grokFinalPrompt = [
+        grokPreset.fixedPrompt,
+        insertions["\u524D\u7F6E\u524D"],
+        insertions["\u524D\u7F6E\u540E"],
+        modifiedPrompt,
+        insertions["\u540E\u7F6E\u524D"],
+        insertions["\u540E\u7F6E\u540E"],
+        grokPreset.postfixPrompt,
+        insertions["\u6700\u540E\u7F6E"]
+      ].filter(Boolean).join(", ");
+      addLog(`[Banana] Grok prompt (\u6587\u751F\u56FE): ${grokFinalPrompt}`);
+    }
+    _banana_gen_params = _bananaSnapshot(activePresetId, grokFinalPrompt);
+    const bananaCharacterPresets = extension_settings49[extensionName].bananaCharacterPresets || {};
+    const refImages = await collectBananaReferenceImages({
+      retouchImage: isEditMode ? retouchImage : null,
+      finalPrompt: grokFinalPrompt,
+      conversationPreset: grokPreset,
+      bananaCharacterPresets: isEditMode ? null : bananaCharacterPresets
+    });
+    const hasRefImages = refImages.length > 0 && grokRefImageParam !== "disabled";
+    const grokGenerationsEndpoint = bananaSettings.grokGenerationsEndpoint || "";
+    const grokEditsEndpoint = bananaSettings.grokEditsEndpoint || "";
+    const grokEditsFormat = bananaSettings.grokEditsFormat || "form_data";
+    const grokResponseFormat = bananaSettings.grokResponseFormat || "none";
+    let grokRequestUrl;
+    let grokRequestHeaders;
+    let grokRequestBody;
+    if (hasRefImages) {
+      addLog(`[Banana] \u68C0\u6D4B\u5230\u53C2\u8003\u56FE (\u5171 ${refImages.length} \u5F20)\uFF0C\u8C03\u7528\u72EC\u7ACB\u56FE\u751F\u56FE/\u4FEE\u56FE\u63A5\u53E3 (POST /v1/images/edits)`);
+      grokRequestUrl = resolveGrokEditsUrl(apiUrl, grokEditsEndpoint || bananaSettings.grokCustomEndpoint);
+      const primaryRefImage = refImages[0];
+      if (grokEditsFormat === "json") {
+        grokRequestHeaders = getDirectHeaders("application/json", `Bearer ${apiKey}`);
+        const editsPayload = {
+          model: effectiveModel,
+          prompt: grokFinalPrompt,
+          image: primaryRefImage,
+          n: 1,
+          size: imageSize
+        };
+        if (grokResponseFormat && grokResponseFormat !== "none") {
+          editsPayload.response_format = grokResponseFormat;
+        }
+        grokRequestBody = JSON.stringify(editsPayload);
+        addLog(`[Banana] Edits \u63A5\u53E3\u53D1\u9001\u8BF7\u6C42\u5230: ${grokRequestUrl} (JSON \u6A21\u5F0F, response_format: ${grokResponseFormat})`);
+      } else {
+        const formData = new FormData();
+        const imageBlob = await dataUrlToBlob(primaryRefImage);
+        if (!imageBlob) {
+          throw new Error("\u53C2\u8003\u56FE\u6570\u636E\u65E0\u6548\uFF0C\u65E0\u6CD5\u8F6C\u6362\u4E3A\u4E8C\u8FDB\u5236\u56FE\u7247\u6587\u4EF6");
+        }
+        formData.append("image", imageBlob, "image.png");
+        formData.append("prompt", grokFinalPrompt);
+        formData.append("model", effectiveModel);
+        formData.append("n", "1");
+        formData.append("size", imageSize);
+        if (grokResponseFormat && grokResponseFormat !== "none") {
+          formData.append("response_format", grokResponseFormat);
+        }
+        grokRequestHeaders = getDirectHeaders(null, `Bearer ${apiKey}`);
+        grokRequestBody = formData;
+        addLog(`[Banana] Edits \u63A5\u53E3\u53D1\u9001\u8BF7\u6C42\u5230: ${grokRequestUrl} (\u6807\u51C6 multipart/form-data \u6587\u4EF6\u4E0A\u4F20\u6A21\u5F0F, response_format: ${grokResponseFormat})`);
+      }
+    } else {
+      addLog("[Banana] \u65E0\u53C2\u8003\u56FE\uFF0C\u8C03\u7528\u72EC\u7ACB\u7EAF\u6587\u751F\u56FE\u63A5\u53E3 (POST /v1/images/generations)");
+      grokRequestUrl = resolveGrokGenerationsUrl(apiUrl, grokGenerationsEndpoint || bananaSettings.grokCustomEndpoint);
+      const generationsPayload = {
+        model: effectiveModel,
+        prompt: grokFinalPrompt,
+        n: 1,
+        size: imageSize
+      };
+      if (grokResponseFormat && grokResponseFormat !== "none") {
+        generationsPayload.response_format = grokResponseFormat;
+      }
+      grokRequestHeaders = getDirectHeaders("application/json", `Bearer ${apiKey}`);
+      grokRequestBody = JSON.stringify(generationsPayload);
+      addLog(`[Banana] \u6587\u751F\u56FE\u63A5\u53E3\u53D1\u9001\u8BF7\u6C42\u5230: ${grokRequestUrl}`);
+      addLog(`[Banana] \u6587\u751F\u56FE payload: ${JSON.stringify(generationsPayload)}`);
+    }
+    try {
+      taskQueue.updateStatus(taskId, "running");
+      const grokResponse = await fetch(grokRequestUrl, {
+        method: "POST",
+        headers: grokRequestHeaders,
+        body: grokRequestBody,
+        signal: currentAbortController.signal
+      });
+      if (!grokResponse.ok) {
+        const errorText = await grokResponse.text();
+        throw new Error(`Grok API request failed (${grokResponse.status}): ${errorText}`);
+      }
+      const grokResult = await grokResponse.json();
+      const item = grokResult?.data?.[0] || (Array.isArray(grokResult?.images) ? typeof grokResult.images[0] === "string" ? { b64_json: grokResult.images[0] } : grokResult.images[0] : null) || (grokResult?.image ? { b64_json: grokResult.image } : null);
+      if (!item) {
+        throw new Error(`Grok \u54CD\u5E94\u7F3A\u5C11\u56FE\u7247\u6570\u636E (data[0]/images)\uFF0C\u539F\u59CB\u54CD\u5E94: ${JSON.stringify(grokResult).slice(0, 500)}`);
+      }
+      let imageUrl = "";
+      const rawB64 = item.b64_json || item.base64;
+      if (rawB64) {
+        imageUrl = rawB64.startsWith("data:image") ? rawB64 : `data:image/png;base64,${rawB64}`;
+        addLog("[Banana] Grok \u6A21\u5F0F\uFF1A\u4ECE b64_json/base64 \u63D0\u53D6\u5230\u56FE\u7247");
+      } else if (item.url) {
+        addLog(`[Banana] Grok \u6A21\u5F0F\uFF1A\u4E0B\u8F7D\u56FE\u7247 URL ${item.url}`);
+        const imgResp = await fetch(item.url, { headers: getDirectHeaders() });
+        if (!imgResp.ok) {
+          throw new Error(`\u4E0B\u8F7D\u56FE\u7247\u5931\u8D25: ${imgResp.status}`);
+        }
+        const blob = await imgResp.blob();
+        imageUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+      if (!imageUrl) {
+        throw new Error("Grok \u54CD\u5E94\u672A\u5305\u542B\u56FE\u7247\uFF08b64_json/url \u5747\u4E3A\u7A7A\uFF09");
+      }
+      if (String(extension_settings49[extensionName].convertToJpegStorage) === "true") {
+        imageUrl = await convertImageToJpeg(imageUrl);
+      }
+      const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+      addLog(`[Banana] Grok \u6A21\u5F0F\uFF1A\u56FE\u7247\u751F\u6210\u6210\u529F (\u8017\u65F6 ${duration} \u79D2)`);
+      taskQueue.completeTask(taskId, true);
+      if (!isPluginToastDisabled()) {
+        toastr.success(`\u2705 Grok \u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+      }
+      currentTaskId3 = null;
+      return { image: imageUrl, change: change_ || "", genParams: _banana_gen_params };
+    } catch (error) {
+      addLog(`[Banana] Grok \u6A21\u5F0F\u9519\u8BEF: ${error.message}`);
+      console.error("[Banana] Grok mode error:", error);
+      if (error.name !== "AbortError" && error.message !== "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+        taskQueue.completeTask(taskId, false);
+      } else {
+        addLog("[Banana] Grok \u6A21\u5F0F\u751F\u6210\u88AB\u53D6\u6D88\u3002");
+      }
+      currentTaskId3 = null;
+      throw error;
+    }
+  }
+  let path;
+  let payload;
+  if (effectiveModel.startsWith("imagen")) {
+    path = `/v1beta/models/${effectiveModel}`;
+    const preset = conversationPresets[conversationPresetId] || { fixedPrompt: "" };
+    const finalPrompt = [

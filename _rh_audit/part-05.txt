@@ -1,0 +1,180 @@
+      preset.fixedPrompt,
+      insertions["\u524D\u7F6E\u524D"],
+      insertions["\u524D\u7F6E\u540E"],
+      modifiedPrompt,
+      insertions["\u540E\u7F6E\u524D"],
+      insertions["\u540E\u7F6E\u540E"],
+      preset.postfixPrompt,
+      insertions["\u6700\u540E\u7F6E"]
+    ].filter(Boolean).join(", ");
+    addLog(`\u6B63\u9762\u63D0\u793A\u8BCD: ${finalPrompt}`);
+    payload = {
+      instances: [{ prompt: finalPrompt }],
+      parameters: {
+        sampleCount: 1,
+        aspectRatio
+      }
+    };
+    addLog(`[Banana] Built Imagen payload with prompt: ${finalPrompt}`);
+    _banana_gen_params = _bananaSnapshot(conversationPresetId, finalPrompt);
+  } else {
+    path = "/v1/chat/completions";
+    let preset;
+    let selectedPresetId;
+    if (change.includes("{\u4FEE\u56FE}")) {
+      addLog("[Banana] \u542F\u7528\u4E86 {\u4FEE\u56FE} \u6807\u8BC6\u3002");
+      const selectedEditPresetId = editPresetId || "\u9ED8\u8BA4";
+      preset = conversationPresets[selectedEditPresetId] || { conversation: [], fixedPrompt: "" };
+      selectedPresetId = selectedEditPresetId;
+      addLog(`[Banana] \u4F7F\u7528\u4FEE\u56FE\u9884\u8BBE: "${selectedEditPresetId}"`);
+    } else if (change.includes("{\u89C6\u9891}")) {
+      addLog("[Banana] \u542F\u7528\u4E86 {\u89C6\u9891} \u6807\u8BC6\u3002");
+      const selectedVideoPresetId = videoPresetId || "\u9ED8\u8BA4";
+      preset = conversationPresets[selectedVideoPresetId] || { conversation: [], fixedPrompt: "" };
+      selectedPresetId = selectedVideoPresetId;
+      addLog(`[Banana] \u4F7F\u7528\u89C6\u9891\u9884\u8BBE: "${selectedVideoPresetId}"`);
+    } else {
+      preset = conversationPresets[conversationPresetId] || { conversation: [], fixedPrompt: "" };
+      selectedPresetId = conversationPresetId;
+    }
+    const finalPrompt = [
+      preset.fixedPrompt,
+      insertions["\u524D\u7F6E\u524D"],
+      insertions["\u524D\u7F6E\u540E"],
+      modifiedPrompt,
+      insertions["\u540E\u7F6E\u524D"],
+      insertions["\u540E\u7F6E\u540E"],
+      preset.postfixPrompt,
+      insertions["\u6700\u540E\u7F6E"]
+    ].filter(Boolean).join(", ");
+    addLog(`\u6B63\u9762\u63D0\u793A\u8BCD: ${finalPrompt}`);
+    _banana_gen_params = _bananaSnapshot(selectedPresetId, finalPrompt);
+    const history = [];
+    for (const turn of preset.conversation) {
+      const turnUserContent = [];
+      if (turn.user?.text) turnUserContent.push({ type: "text", text: turn.user.text });
+      const userImage = await getImageFromTurnData(turn.user);
+      if (userImage) turnUserContent.push({ type: "image_url", image_url: { url: userImage } });
+      const turnModelContent = [];
+      if (turn.model?.text) turnModelContent.push({ type: "text", text: turn.model.text });
+      const modelImage = await getImageFromTurnData(turn.model);
+      if (modelImage) turnModelContent.push({ type: "image_url", image_url: { url: modelImage } });
+      if (turnUserContent.length === 0 || turnModelContent.length === 0) {
+        if (turnUserContent.length > 0 && turnModelContent.length === 0) {
+          addLog(`[Banana] \u8DF3\u8FC7 model \u4E3A\u7A7A\u7684\u9884\u8BBE\u8F6E\u6B21\uFF0C\u907F\u514D\u8FDE\u7EED user \u6D88\u606F\u5806\u53E0`);
+        }
+        continue;
+      }
+      history.push({ role: "user", content: turnUserContent });
+      history.push({ role: "assistant", content: turnModelContent });
+    }
+    if (!change.includes("{\u4FEE\u56FE}") && !change.includes("{\u89C6\u9891}")) {
+      const bananaCharacterPresets = extension_settings49[extensionName].bananaCharacterPresets || {};
+      for (const presetName in bananaCharacterPresets) {
+        const charPreset = bananaCharacterPresets[presetName];
+        const triggers = (charPreset.triggers || "").split("|").filter((t) => t.trim() !== "");
+        for (const trigger of triggers) {
+          if (finalPrompt.toLowerCase().includes(trigger.toLowerCase())) {
+            addLog(`[Banana] Found matching trigger "${trigger}" from preset "${presetName}".`);
+            const turn = charPreset.conversation;
+            if (turn) {
+              const userContent = [];
+              if (turn.user && turn.user.text) userContent.push({ type: "text", text: turn.user.text });
+              const userImage = await getImageFromTurnData(turn.user);
+              if (userImage) userContent.push({ type: "image_url", image_url: { url: userImage } });
+              if (userContent.length > 0) {
+                history.push({ role: "user", content: userContent });
+              }
+              const modelContent = [];
+              if (turn.model && turn.model.text) modelContent.push({ type: "text", text: turn.model.text });
+              const modelImage = await getImageFromTurnData(turn.model);
+              if (modelImage) modelContent.push({ type: "image_url", image_url: { url: modelImage } });
+              if (modelContent.length > 0) {
+                history.push({ role: "assistant", content: modelContent });
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+    if (!change.includes("{\u4FEE\u56FE}") && !change.includes("{\u89C6\u9891}")) {
+      history.push({
+        role: "user",
+        content: [{ type: "text", text: finalPrompt }]
+      });
+    } else if (change.includes("{\u4FEE\u56FE}")) {
+      const userContent = [];
+      const promptText = retouchPrompt || finalPrompt;
+      const combinedPrompt = [preset.fixedPrompt, promptText, preset.postfixPrompt].filter(Boolean).join(", ");
+      userContent.push({ type: "text", text: combinedPrompt });
+      if (retouchImage) {
+        userContent.push({ type: "image_url", image_url: { url: retouchImage } });
+        addLog(`[Banana] \u4FEE\u56FE\u6A21\u5F0F\uFF1A\u5DF2\u6DFB\u52A0\u5F85\u4FEE\u6539\u7684\u56FE\u7247`);
+      }
+      history.push({
+        role: "user",
+        content: userContent
+      });
+      addLog(`[Banana] \u4FEE\u56FE\u6A21\u5F0F\uFF1A\u6307\u4EE4 = ${combinedPrompt}`);
+    } else if (change.includes("{\u89C6\u9891}")) {
+      const userContent = [];
+      const promptText = videoPrompt || finalPrompt;
+      const combinedPrompt = [preset.fixedPrompt, promptText, preset.postfixPrompt].filter(Boolean).join(", ");
+      userContent.push({ type: "text", text: combinedPrompt });
+      if (videoImage) {
+        userContent.push({ type: "image_url", image_url: { url: videoImage } });
+        addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u5DF2\u6DFB\u52A0\u53C2\u8003\u56FE\u7247`);
+      }
+      history.push({ role: "user", content: userContent });
+      addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u6307\u4EE4 = ${combinedPrompt}`);
+    }
+    payload = {
+      model: effectiveModel,
+      messages: history.filter((entry) => entry.content.length > 0),
+      size: imageSize
+      // 临时禁用 config.imageConfig，排查部分模型（如 grok-imagine-*）不识别该字段导致生图异常
+      // config: {
+      //     imageConfig: {
+      //         aspectRatio: aspectRatio
+      //     }
+      // }
+    };
+    addLog(`[Banana] Built multimodal payload with ${payload.messages.length} messages.\uFF08\u5DF2\u7981\u7528 config.imageConfig\uFF09`);
+  }
+  let baseUrl = apiUrl.replace(/\/$/, "");
+  let directUrl = baseUrl + "/chat/completions";
+  const client = extension_settings49[extensionName].client;
+  let requestUrl, requestHeaders, requestBody;
+  if (client === "jiuguan") {
+    let proxyBaseUrl = baseUrl;
+    requestUrl = "/api/backends/chat-completions/generate";
+    requestHeaders = getRequestHeaders(window.token);
+    const proxyModel = effectiveModel;
+    requestBody = {
+      chat_completion_source: "custom",
+      custom_url: proxyBaseUrl,
+      custom_include_headers: `Authorization: "Bearer ${apiKey}"`,
+      model: proxyModel,
+      messages: payload.messages,
+      size: imageSize,
+      stream: false
+    };
+    if (proxyModel.startsWith("imagen")) {
+      addLog(`[Banana] Imagen \u6A21\u578B\u4E0D\u652F\u6301\u9152\u9986\u4EE3\u7406\uFF0C\u5207\u6362\u4E3A\u76F4\u63A5\u8BF7\u6C42`);
+      requestUrl = directUrl;
+      requestHeaders = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      };
+      requestBody = payload;
+    }
+    addLog(`[Banana] \u4F7F\u7528\u9152\u9986\u4EE3\u7406\u6A21\u5F0F`);
+  } else {
+    requestUrl = directUrl;
+    requestHeaders = getDirectHeaders("application/json", `Bearer ${apiKey}`);
+    requestBody = payload;
+    addLog(`[Banana] \u4F7F\u7528\u76F4\u63A5\u8BF7\u6C42\u6A21\u5F0F`);
+  }
+  addLog(`[Banana] Sending request to: ${requestUrl}`);
+  addLog(`[Banana] Payload: ${JSON.stringify(requestBody, null, 2)}`);

@@ -1,0 +1,180 @@
+      const rawNode = rawObj[nodeId];
+      if (!rawNode) {
+        console.warn(`[RunningHub v2] \u539F\u59CB\u6A21\u677F\u4E2D\u4E0D\u5B58\u5728\u8282\u70B9 ${nodeId}\uFF0C\u8DF3\u8FC7\u8BE5\u8986\u76D6\u9879\u4EE5\u9632\u4E91\u7AEF 803 \u62A5\u9519`);
+        continue;
+      }
+      const modifiedInputs = modifiedNode.inputs || {};
+      const rawInputs = rawNode?.inputs || {};
+      for (const [fieldName, modVal] of Object.entries(modifiedInputs)) {
+        if (Array.isArray(modVal) && modVal.length === 2 && (typeof modVal[0] === "string" || typeof modVal[0] === "number")) {
+          continue;
+        }
+        const rawVal = rawInputs[fieldName];
+        const isPlaceholder = typeof rawVal === "string" && /%[^%]+%/.test(rawVal);
+        const isDifferent = JSON.stringify(modVal) !== JSON.stringify(rawVal);
+        if (isPlaceholder || isDifferent || rawVal === void 0) {
+          nodeInfoList.push({
+            nodeId: String(nodeId),
+            fieldName,
+            fieldValue: modVal
+          });
+        }
+      }
+    }
+  }
+  return nodeInfoList;
+}
+async function generateRunningHubImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt }) {
+  clearLog();
+  let taskType = TaskType.RUNNINGHUB_IMG;
+  let taskTypeName = "RunningHub \u666E\u901A\u751F\u56FE";
+  let isVideoTask = false;
+  if (change && (change.includes("{RunningHub\u53C2\u8003\u751F\u89C6\u9891}") || change.includes("{\u53C2\u8003\u751F\u89C6\u9891}"))) {
+    taskType = TaskType.RUNNINGHUB_REF2VID;
+    taskTypeName = "RunningHub \u53C2\u8003\u751F\u89C6\u9891";
+    isVideoTask = true;
+  } else if (change && (change.includes("{RunningHub\u56FE\u751F\u89C6\u9891}") || change.includes("{\u56FE\u751F\u89C6\u9891}") || change.includes("{RunningHub\u89C6\u9891}"))) {
+    taskType = TaskType.RUNNINGHUB_IMG2VID;
+    taskTypeName = "RunningHub \u56FE\u751F\u89C6\u9891";
+    isVideoTask = true;
+  }
+  const taskId = taskQueue.addTask({
+    name: (link || "").substring(0, 30) + (link && link.length > 30 ? "..." : ""),
+    type: taskType,
+    prompt: link
+  });
+  currentTaskId4 = taskId;
+  const startTime = Date.now();
+  if (!isPluginToastDisabled()) {
+    toastr.info(`\u{1F3A8} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
+  }
+  link = typeof link === "string" ? link : "";
+  change = typeof change === "string" ? change : "";
+  let change_ = "";
+  if (change) {
+    change_ = change.replaceAll("{RunningHub\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{RunningHub\u56FE\u751F\u89C6\u9891}", "").replaceAll("{\u56FE\u751F\u89C6\u9891}", "").replaceAll("{RunningHub\u89C6\u9891}", "").replaceAll("{RunningHub\u5C40\u90E8\u91CD\u7ED8}", "").replaceAll("{\u5C40\u90E8\u91CD\u7ED8}", "");
+  } else {
+    change_ = link;
+  }
+  const sizeRegex = /,?\s*(\d{2,4})x(\d{2,4})(?=[;\s]|$)/i;
+  if (typeof link === "string") {
+    const match = link.match(sizeRegex);
+    if (match) {
+      if (String(extension_settings50[extensionName].aiAutonomousResolution) !== "false") {
+        Xwidth = parseInt(match[1], 10);
+        Xheight = parseInt(match[2], 10);
+      }
+    }
+    link = link.replace(sizeRegex, "");
+  }
+  if (typeof change_ === "string") {
+    const match = change_.match(sizeRegex);
+    if (match) {
+      if (String(extension_settings50[extensionName].aiAutonomousResolution) !== "false") {
+        Xwidth = parseInt(match[1], 10);
+        Xheight = parseInt(match[2], 10);
+      }
+    }
+    change_ = change_.replace(sizeRegex, "");
+  }
+  link = processCharacterPrompt(link);
+  link = await stripChineseAnnotations(link);
+  change_ = processCharacterPrompt(change_);
+  change_ = await stripChineseAnnotations(change_);
+  const settings3 = extension_settings50[extensionName];
+  const rawApiKey = settings3.runninghub_apiKey;
+  let workflowCategoryName = "\u4E3B\u5DE5\u4F5C\u6D41";
+  let targetWorkerid = settings3.runninghub_workerid;
+  let targetWorkflowId = settings3.runninghub_workflow_ids?.[targetWorkerid] || settings3.runninghub_workflowId;
+  let targetWorkerJson = settings3.runninghub_worker || settings3.runninghub_workers?.[targetWorkerid] || "{}";
+  if (taskType === TaskType.RUNNINGHUB_REF2VID) {
+    workflowCategoryName = "\u53C2\u8003\u751F\u89C6\u9891\u5DE5\u4F5C\u6D41";
+    targetWorkerid = settings3.runninghub_ref2vid_workerid || targetWorkerid;
+    targetWorkflowId = settings3.runninghub_workflow_ids?.[targetWorkerid] || settings3.runninghub_ref2vid_workflowId || targetWorkflowId;
+    targetWorkerJson = settings3.runninghub_ref2vid_worker || settings3.runninghub_workers?.[targetWorkerid] || targetWorkerJson;
+  } else if (taskType === TaskType.RUNNINGHUB_IMG2VID) {
+    workflowCategoryName = "\u56FE\u751F\u89C6\u9891\u5DE5\u4F5C\u6D41";
+    targetWorkerid = settings3.runninghub_img2vid_workerid || targetWorkerid;
+    targetWorkflowId = settings3.runninghub_workflow_ids?.[targetWorkerid] || settings3.runninghub_img2vid_workflowId || targetWorkflowId;
+    targetWorkerJson = settings3.runninghub_img2vid_worker || settings3.runninghub_workers?.[targetWorkerid] || targetWorkerJson;
+  }
+  const workflowId = targetWorkflowId;
+  if (!rawApiKey) {
+    taskQueue.completeTask(taskId, false);
+    currentTaskId4 = null;
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 RunningHub API Key");
+  }
+  if (!workflowId) {
+    taskQueue.completeTask(taskId, false);
+    currentTaskId4 = null;
+    throw new Error(`\u5F53\u524D\u3010${workflowCategoryName}\u3011\u9009\u4E2D\u7684\u9884\u8BBE "${targetWorkerid}" \u5C1A\u672A\u914D\u7F6E\u5DE5\u4F5C\u6D41 ID\uFF0C\u8BF7\u5728\u5DE5\u4F5C\u6D41\u8BBE\u7F6E\u4E2D\u586B\u5199`);
+  }
+  addLog(`\u5F00\u59CB RunningHub \u751F\u56FE\u6D41\u7A0B\u3002\u5DE5\u4F5C\u6D41\u5206\u7C7B: \u3010${workflowCategoryName}\u3011\uFF0C\u5DE5\u4F5C\u6D41 ID: ${workflowId}`);
+  addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41\u9884\u8BBE: ${targetWorkerid || "\u9ED8\u8BA4"}`);
+  addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
+  const promptForGeneration = change_ && change_.trim() !== "" ? change_ : link;
+  addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${promptForGeneration}`);
+  let Divide_roles = false;
+  if (promptForGeneration.includes("Scene Composition")) {
+    Divide_roles = true;
+  }
+  addLog(`\u662F\u5426\u542F\u7528\u5206\u89D2\u8272\u6A21\u5F0F (Divide_roles): ${Divide_roles}`);
+  let prompt_data = {};
+  let mainPrompt = "";
+  let other_prompt = "";
+  if (Divide_roles) {
+    addLog("\u5206\u89D2\u8272\u6A21\u5F0F: \u89E3\u6790\u5E26\u5750\u6807\u7684\u63D0\u793A\u8BCD\u5B57\u7B26\u4E32\u3002");
+    prompt_data = parsePromptStringWithCoordinates(promptForGeneration);
+    mainPrompt = prompt_data["Scene Composition"];
+    for (let i = 1; i <= 4; i++) {
+      if (prompt_data[`Character ${i} Prompt`]) {
+        other_prompt = other_prompt + ", " + prompt_data[`Character ${i} Prompt`];
+      }
+    }
+  } else {
+    addLog("\u6807\u51C6\u6A21\u5F0F: \u4F7F\u7528\u8BF7\u6C42\u4E2D\u7684 prompt\u3002");
+    mainPrompt = deduplicateTags(promptForGeneration);
+  }
+  let { modifiedPrompt, insertions } = await prompt_replace(mainPrompt, other_prompt);
+  if (Divide_roles) {
+    for (let i = 1; i <= 4; i++) {
+      if (prompt_data[`Character ${i} Prompt`]) {
+        modifiedPrompt = modifiedPrompt + " | " + prompt_replace_for_character(prompt_data[`Character ${i} Prompt`], (mainPrompt || "") + " " + (other_prompt || ""));
+      }
+    }
+  }
+  const _rh_yushe_id = getRandomYusheId("yusheid_runninghub");
+  const _rh_preset = settings3.yushe?.[_rh_yushe_id] || { fixedPrompt: "", fixedPrompt_end: "", negativePrompt: "" };
+  let prompt2 = await zhengmian(
+    _rh_preset.fixedPrompt,
+    modifiedPrompt,
+    _rh_preset.fixedPrompt_end,
+    settings3.AQT_runninghub,
+    insertions
+  );
+  let negative_prompt = await fumian(_rh_preset.negativePrompt, settings3.UCP_runninghub);
+  if (!Divide_roles && window.collectedCharacterNegatives) {
+    const characterNegatives = window.collectedCharacterNegatives.trim();
+    if (characterNegatives) {
+      negative_prompt = negative_prompt ? `${negative_prompt}, ${characterNegatives}` : characterNegatives;
+      addLog(`[\u89D2\u8272\u8D1F\u9762] \u6DFB\u52A0\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD: ${characterNegatives}`);
+    }
+  }
+  if (extraNegativePrompt && extraNegativePrompt.trim()) {
+    const trimmedExtra = extraNegativePrompt.trim();
+    negative_prompt = negative_prompt ? `${negative_prompt}, ${trimmedExtra}` : trimmedExtra;
+    addLog(`[\u667A\u7ED8\u59EC] \u6DFB\u52A0\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD: ${trimmedExtra}`);
+  }
+  prompt2 = prompt2.replaceAll("\n", ",").replace(/,{2,}/g, ",");
+  negative_prompt = negative_prompt.replaceAll("\n", ",").replace(/,{2,}/g, ",");
+  addLog(`[RunningHub] \u6B63\u9762\u63D0\u793A\u8BCD: ${prompt2}`);
+  addLog(`[RunningHub] \u8D1F\u9762\u63D0\u793A\u8BCD: ${negative_prompt}`);
+  const reqWidth = Xwidth || (settings3.runninghub_width ? parseInt(settings3.runninghub_width) : null) || (settings3.size ? parseInt(settings3.size.split("x")[0]) : 1024) || 1024;
+  const reqHeight = Xheight || (settings3.runninghub_height ? parseInt(settings3.runninghub_height) : null) || (settings3.size ? parseInt(settings3.size.split("x")[1]) : 1024) || 1024;
+  const rawJson = targetWorkerJson || settings3.runninghub_worker || settings3.runninghub_workers?.[settings3.runninghub_workerid] || "{}";
+  const genSettings = {
+    width: reqWidth,
+    height: reqHeight,
+    seed: isVideoTask ? settings3.runninghub_val_seed : settings3.runninghub_seed ?? settings3.runninghub_val_seed,
+    steps: isVideoTask ? settings3.runninghub_val_steps : settings3.runninghub_steps ?? settings3.runninghub_val_steps,
+    model: settings3.runninghub_model,

@@ -1,0 +1,180 @@
+  }
+}
+function createAndShowImage(container, imageUrl, alt, button, change, isVideo = false, originalUrl = "", video = "", activeMode = "") {
+  const doc = container.ownerDocument;
+  if (!doc) return;
+  const div = doc.createElement("div");
+  div.className = "st-chatu8-image-container";
+  let media;
+  if (isVideo) {
+    media = doc.createElement("video");
+    media.controls = false;
+    media.loop = true;
+    media.muted = false;
+    media.defaultMuted = false;
+    media.removeAttribute("muted");
+    media.playsInline = true;
+    media.setAttribute("playsinline", "");
+    media.setAttribute("webkit-playsinline", "true");
+    media.setAttribute("x5-playsinline", "true");
+    media.setAttribute("x5-video-player-type", "h5-page");
+    media.setAttribute("controlslist", "nodownload");
+    media.dataset.isVideo = "true";
+    media.autoplay = false;
+    media.preload = "metadata";
+    let isSourceLoaded = false;
+    const loadVideoMediaSource = () => {
+      if (isSourceLoaded) return;
+      isSourceLoaded = true;
+      const applyBlob = (blob) => {
+        const blobUrl = (doc.defaultView?.URL || window.URL || URL).createObjectURL(blob);
+        if (media.dataset.blobUrl) {
+          try {
+            (doc.defaultView?.URL || window.URL || URL).revokeObjectURL(media.dataset.blobUrl);
+          } catch (_) {
+          }
+        }
+        media.dataset.blobUrl = blobUrl;
+        media.src = blobUrl;
+      };
+      if (imageUrl.startsWith("data:")) {
+        _dataUrlToBlob(imageUrl).then((rawBlob) => fixMp4Faststart(rawBlob)).then((blob) => applyBlob(blob)).catch((e) => {
+          console.warn("[video] DataURL \u8F6C Blob \u5931\u8D25\uFF0C\u56DE\u9000\u76F4\u63A5\u8D4B\u503C:", e);
+          media.src = originalUrl || imageUrl;
+        });
+      } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://") || imageUrl.startsWith("/") || imageUrl.startsWith(".")) {
+        fetch(imageUrl).then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.blob();
+        }).then((rawBlob) => fixMp4Faststart(rawBlob)).then((blob) => applyBlob(blob)).catch((e) => {
+          console.warn("[video] \u7F51\u7EDC URL faststart \u9884\u62C9\u53D6\u5931\u8D25\uFF0C\u76F4\u63A5\u8D4B\u503C:", e);
+          media.src = originalUrl || imageUrl;
+        });
+      } else {
+        media.src = imageUrl;
+      }
+    };
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadVideoMediaSource();
+          } else {
+            if (!media.paused && typeof media.pause === "function") {
+              media.pause();
+            }
+          }
+        });
+      }, {
+        root: null,
+        rootMargin: "400px 0px 400px 0px",
+        threshold: 0
+      });
+      observer.observe(div);
+      setTimeout(() => {
+        if (!isSourceLoaded) {
+          loadVideoMediaSource();
+        }
+      }, 500);
+    } else {
+      loadVideoMediaSource();
+    }
+    media.onerror = function() {
+      if (!this.src || this.src === "about:blank" || this.src === location.href) return;
+      const errCode = this.error?.code;
+      console.error(`[iframe] Video onerror: code=${errCode}, msg=${this.error?.message}`);
+      if (originalUrl && this.src !== originalUrl) {
+        console.log("[iframe] \u5C1D\u8BD5\u4F7F\u7528\u539F\u59CB URL \u5907\u7528\u64AD\u653E:", originalUrl);
+        this.src = originalUrl;
+        try {
+          this.load();
+        } catch (_) {
+        }
+        return;
+      }
+      if (media.parentNode && media.parentNode.querySelector(".st-chatu8-video-notice")) {
+        return;
+      }
+      const notice = doc.createElement("div");
+      notice.className = "st-chatu8-video-notice";
+      notice.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 8px;
+                padding: 10px;
+                background: rgba(0,0,0,0.5);
+                border-radius: 0 0 8px 8px;
+                color: #fff;
+                font-size: 13px;
+                text-align: center;
+            `;
+      const text = doc.createElement("div");
+      text.textContent = "\u26A0\uFE0F \u89C6\u9891\u5728\u5F53\u524D\u6D4F\u89C8\u5668\u73AF\u5883\u4E2D\u65E0\u6CD5\u64AD\u653E\uFF0C\u8BF7\u4E0B\u8F7D\u540E\u7528\u89C6\u9891\u64AD\u653E\u5668\u89C2\u770B";
+      text.style.opacity = "0.9";
+      const downloadBtn = doc.createElement("a");
+      const blobSrc = media.dataset.blobUrl || imageUrl;
+      downloadBtn.href = blobSrc;
+      downloadBtn.download = "video.mp4";
+      downloadBtn.textContent = "\u{1F4E5} \u4E0B\u8F7D\u89C6\u9891";
+      downloadBtn.style.cssText = `
+                background: rgba(255,255,255,0.25);
+                padding: 7px 18px;
+                border-radius: 4px;
+                color: #fff;
+                text-decoration: none;
+                cursor: pointer;
+                font-size: 14px;
+            `;
+      downloadBtn.onclick = (e) => e.stopPropagation();
+      notice.appendChild(text);
+      notice.appendChild(downloadBtn);
+      if (media.parentNode) {
+        media.parentNode.appendChild(notice);
+      }
+    };
+  } else {
+    media = doc.createElement("img");
+    media.alt = alt;
+    media.decoding = "async";
+    media.dataset.fullSrc = imageUrl;
+    media.src = imageUrl;
+    let naturalWidth = 0;
+    let naturalHeight = 0;
+    media.onload = () => {
+      naturalWidth = media.naturalWidth || 0;
+      naturalHeight = media.naturalHeight || 0;
+      if (naturalWidth && naturalHeight) {
+        div.dataset.aspectRatio = String(naturalHeight / naturalWidth);
+        if (div.offsetHeight > 40) {
+          div.style.minHeight = `${div.offsetHeight}px`;
+        }
+      }
+    };
+    div._mountChatImage = () => {
+      if (media.src !== imageUrl) {
+        media.src = imageUrl;
+      }
+    };
+  }
+  if (button) {
+    if (change) {
+      button.dataset.change = change;
+    }
+    if (video) {
+      button.dataset.video = video;
+    }
+    if (activeMode) {
+      button.dataset.activeMode = activeMode;
+      if (activeMode === "video") {
+        button.textContent = "\u751F\u6210\u89C6\u9891";
+      }
+    }
+  }
+  function attachCustomVideoPlayer(doc2, div2, media2, button2) {
+    media2.controls = false;
+    media2.playsInline = true;
+    media2.setAttribute("playsinline", "");
+    media2.setAttribute("webkit-playsinline", "true");
+    media2.setAttribute("x5-playsinline", "true");
+    media2.setAttribute("x5-video-player-type", "h5");

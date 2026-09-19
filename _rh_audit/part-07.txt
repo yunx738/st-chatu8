@@ -1,0 +1,180 @@
+        format: format || "image"
+      });
+      addLog(`[Banana] \u53D1\u9001ComfyUI\u5C40\u90E8\u91CD\u7ED8\u6210\u529F\u54CD\u5E94 (ID: ${id})`);
+    } catch (error) {
+      const errorMsg = `[Banana] ComfyUI\u5C40\u90E8\u91CD\u7ED8\u6D41\u7A0B\u6355\u83B7\u5230\u5F02\u5E38 (ID: ${id}): ${error.message}`;
+      addLog(`\u9519\u8BEF: ${errorMsg}`);
+      console.error("Error generating ComfyUI inpaint image:", error);
+      recordImageGeneration("banana", false);
+      eventSource22.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+        id,
+        success: false,
+        error: error.message,
+        prompt: prompt2
+      });
+      addLog(`[Banana] \u53D1\u9001ComfyUI\u5C40\u90E8\u91CD\u7ED8\u5931\u8D25\u54CD\u5E94 (ID: ${id})`);
+    }
+    return;
+  }
+  try {
+    const { image: imageUrl, change: returnedChange, isVideo, format, originalUrl, genParams } = await generateBananaImage({ prompt: prompt2, width, height, change, retouchPrompt, retouchImage, videoPrompt, videoImage });
+    if (extension_settings49[extensionName].cache != "0") {
+      await setItemImg(prompt2, imageUrl, {
+        change: change_,
+        isVideo: isVideo || false,
+        format: format || "image",
+        originalUrl: originalUrl || "",
+        genParams,
+        onTailSuccess: () => addLog(`\u56FE\u50CF\u5DF2\u5B58\u5165\u6570\u636E\u5E93 for prompt: ${prompt2}`),
+        onTailError: (e) => {
+          const msg = `\u56FE\u7247\u5DF2\u663E\u793A\uFF0C\u4F46\u4FDD\u5B58\u5230\u6570\u636E\u5E93\u5931\u8D25: ${e?.message || e}`;
+          addLog(`\u9519\u8BEF: ${msg}`);
+          if (typeof toastr !== "undefined") toastr.error(msg);
+        }
+      });
+      if (extension_settings49[extensionName].banana.cishu) {
+        extension_settings49[extensionName].banana.cishu = extension_settings49[extensionName].banana.cishu + 1;
+        addLog(`\u5F53\u524D\u751F\u56FE\u6B21\u6570\u4E3A for prompt: ${extension_settings49[extensionName].banana.cishu}`);
+      } else {
+        extension_settings49[extensionName].banana.cishu = 1;
+        addLog(`\u5F53\u524D\u751F\u56FE\u6B21\u6570\u4E3A for prompt: ${extension_settings49[extensionName].banana.cishu}`);
+      }
+    } else {
+      addLog(`\u7F13\u5B58\u8BBE\u7F6E\u4E3A\u4E0D\u5B58\u5165\u6570\u636E\u5E93`);
+    }
+    recordImageGeneration("banana", true);
+    eventSource22.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: true,
+      imageData: imageUrl,
+      prompt: prompt2,
+      change: change_,
+      isVideo: isVideo || false,
+      format: format || "image",
+      originalUrl: originalUrl || ""
+    });
+    eventSource22.emit("generate-image-response", {
+      id,
+      success: true,
+      imageData: imageUrl,
+      prompt: prompt2,
+      change: change_,
+      isVideo: isVideo || false,
+      format: format || "image",
+      originalUrl: originalUrl || ""
+    });
+    addLog(`[Banana] Emitted success response for ID: ${id}`);
+  } catch (error) {
+    const errorMessage = `[Banana] Generation failed for ID ${id}: ${error.message}`;
+    addLog(errorMessage);
+    console.error(errorMessage);
+    recordImageGeneration("banana", false);
+    eventSource22.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id,
+      success: false,
+      error: error.message,
+      prompt: prompt2
+    });
+    eventSource22.emit("generate-image-response", {
+      id,
+      success: false,
+      error: error.message,
+      prompt: prompt2
+    });
+    addLog(`[Banana] Emitted failure response for ID: ${id}`);
+  }
+}
+function handleCancelBananaTask(data) {
+  const { taskId } = data;
+  addLog(`[Banana] \u6536\u5230\u53D6\u6D88\u4EFB\u52A1\u4E8B\u4EF6 (TaskID: ${taskId})`);
+  if (currentTaskId3 === taskId && currentRequestId) {
+    addLog(`[Banana] \u53D6\u6D88\u5F53\u524D\u4EFB\u52A1\uFF0C\u53D1\u9001\u5931\u8D25\u54CD\u5E94 (ID: ${currentRequestId})`);
+    recordImageGeneration("banana", false);
+    eventSource22.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+      id: currentRequestId,
+      success: false,
+      error: "\u4EFB\u52A1\u5DF2\u53D6\u6D88",
+      prompt: currentPrompt || ""
+    });
+    eventSource22.emit("generate-image-response", {
+      id: currentRequestId,
+      success: false,
+      error: "\u4EFB\u52A1\u5DF2\u53D6\u6D88",
+      prompt: currentPrompt || ""
+    });
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+      addLog(`[Banana] \u5DF2\u89E6\u53D1 AbortController \u5F7B\u5E95\u4E2D\u65AD\u8BF7\u6C42`);
+    }
+    currentTaskId3 = null;
+    currentRequestId = null;
+    currentPrompt = null;
+  }
+}
+function initializeBananaListener() {
+  eventSource22.on(EventType.GENERATE_IMAGE_REQUEST, bananaGenerate);
+  eventSource22.on("st_chatu8_cancel_banana_task", handleCancelBananaTask);
+  addLog("banana \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u521D\u59CB\u5316\u3002");
+}
+async function replaceWithBanana() {
+  if (isPluginEnabled() && extension_settings49[extensionName].mode == "banana") {
+    if (!window.initializeBananaListener) {
+      window.initializeBananaListener = true;
+      initializeBananaListener();
+    }
+    initializeImageProcessing();
+  } else {
+    if (window.initializeBananaListener) {
+      eventSource22.removeListener(EventType.GENERATE_IMAGE_REQUEST, bananaGenerate);
+      eventSource22.removeListener("st_chatu8_cancel_banana_task", handleCancelBananaTask);
+      window.initializeBananaListener = false;
+      addLog("[Banana] \u751F\u56FE\u4E8B\u4EF6\u76D1\u542C\u5668\u5DF2\u5173\u95ED\u3002");
+    }
+  }
+}
+var currentTaskId3, currentRequestId, currentPrompt, currentAbortController;
+var init_banana = __esm({
+  "utils/banana.js"() {
+    init_config();
+    init_utils();
+    init_iframe2();
+    init_characterprompt();
+    init_database();
+    init_genParams();
+    init_configDatabase();
+    init_taskQueue();
+    init_comfyui();
+    init_imageGenStats();
+    currentTaskId3 = null;
+    currentRequestId = null;
+    currentPrompt = null;
+    currentAbortController = null;
+  }
+});
+
+// utils/runninghub.js
+
+
+async function extractLargestMediaFromZip(arrayBuffer) {
+  addLog("[RunningHub] \u5F00\u59CB\u89E3\u538B\u8F93\u51FA ZIP \u538B\u7F29\u5305...");
+  const JSZipConstructor = window.stChatu8JSZip || window.JSZip;
+  if (!JSZipConstructor || typeof JSZipConstructor.loadAsync !== "function") {
+    throw new Error("JSZip \u4E0D\u53EF\u7528\uFF0C\u65E0\u6CD5\u89E3\u538B ZIP \u6587\u4EF6");
+  }
+  const zip = await JSZipConstructor.loadAsync(arrayBuffer);
+  addLog("[RunningHub] ZIP \u538B\u7F29\u5305\u52A0\u8F7D\u6210\u529F\uFF0C\u5F00\u59CB\u68C0\u7D22 files/ \u76EE\u5F55\u4E0B\u7684\u6587\u4EF6...");
+  const fileEntries = [];
+  zip.forEach((relativePath, zipEntry) => {
+    if (!zipEntry.dir) {
+      fileEntries.push(zipEntry);
+    }
+  });
+  if (fileEntries.length === 0) {
+    throw new Error("ZIP \u538B\u7F29\u5305\u5185\u672A\u627E\u5230\u4EFB\u4F55\u6709\u6548\u8F93\u51FA\u6587\u4EF6");
+  }
+  addLog(`[RunningHub] \u53D1\u73B0 ${fileEntries.length} \u4E2A\u5019\u9009\u6587\u4EF6\uFF0C\u6B63\u5728\u5BFB\u627E\u4F53\u79EF\u6700\u5927\u7684\u4E3B\u5A92\u4F53\u6587\u4EF6...`);
+  let largestEntry = null;
+  let maxSizeBytes = -1;
+  let largestBase64 = null;
+  for (const entry of fileEntries) {

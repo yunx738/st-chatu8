@@ -1,0 +1,180 @@
+          addLog("[RunningHubVideo] \u76F4\u8FDE MP4 faststart \u5904\u7406\u5B8C\u6210");
+        } catch (faststartErr) {
+          console.warn("[RunningHubVideo] \u76F4\u8FDE MP4 faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", faststartErr);
+        }
+      }
+      finalMediaData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(processedBlob);
+      });
+    }
+    const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+    taskQueue.completeTask(taskId, true);
+    const rhDetailParts = [];
+    if (rhTaskCostTime != null) rhDetailParts.push(`RH\u6D88\u8017\u65F6\u95F4: ${rhTaskCostTime}\u79D2`);
+    if (rhConsumeCoins != null) rhDetailParts.push(`\u6D88\u8017RH\u70B9\u6570: ${rhConsumeCoins}`);
+    const rhDetailText = rhDetailParts.length > 0 ? ` (${rhDetailParts.join(", ")})` : "";
+    if (!isPluginToastDisabled()) {
+      toastr.success(`\u2705 ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2${rhDetailText}`);
+    }
+    addLog(`[RunningHubVideo] ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2${rhDetailText}`);
+    if (apiKey) {
+      invalidateBalanceCache(apiKey);
+      if (rhConsumeCoins != null) {
+        recordKeyConsumption(apiKey, rhConsumeCoins);
+      }
+    }
+    recordImageGeneration("runninghub", true);
+    return {
+      mediaData: finalMediaData,
+      isVideo,
+      format: mediaFormat,
+      originalUrl: outputUrl,
+      genParams: _rh_gen_params,
+      taskCostTime: rhTaskCostTime,
+      consumeCoins: rhConsumeCoins
+    };
+  } catch (err) {
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    if (rawMessage !== "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+      taskQueue.completeTask(taskId, false);
+      recordImageGeneration("runninghub", false);
+      toastr.error(`RunningHub \u89C6\u9891\u751F\u6210\u5931\u8D25: ${rawMessage}`);
+    }
+    addLog(`[RunningHubRefVideo \u9519\u8BEF] ${rawMessage}`);
+    console.error("[RunningHubRefVideo \u9519\u8BEF]", err);
+    throw err;
+  } finally {
+    if (keyLease && typeof keyLease.releaseKey === "function") {
+      try {
+        keyLease.releaseKey();
+      } catch (e) {
+        console.warn("[RunningHubRefVideo] \u91CA\u653E Key \u5F02\u5E38:", e);
+      }
+      keyLease = null;
+    }
+  }
+}
+async function executeRunningHubVideoDirectTest({
+  prompt: prompt2,
+  workflowJson,
+  workflowId,
+  uploadedImages = {},
+  uploadedAudios = {},
+  genSettings = {},
+  apiKey: specifiedApiKey,
+  apiKeys: specifiedApiKeys,
+  onStatusUpdate,
+  abortSignal
+}) {
+  const notify = (msg, isError = false) => {
+    addLog(`[RunningHubTest] ${msg}`);
+    if (typeof onStatusUpdate === "function") {
+      onStatusUpdate(msg, isError);
+    }
+  };
+  if (!workflowId) {
+    throw new Error("\u8BF7\u5148\u914D\u7F6E\u8BE5\u9884\u8BBE\u5BF9\u5E94\u7684 RunningHub Workflow ID");
+  }
+  const settings3 = extension_settings51[extensionName] || {};
+  notify("\u6B63\u5728\u4ECE Key \u6C60\u5206\u914D\u7A7A\u95F2\u4E14\u6709\u4F59\u989D\u7684 API Key...");
+  const candidateKeys = specifiedApiKey ? [specifiedApiKey] : specifiedApiKeys;
+  const keyLease = await acquireRunningHubKey({
+    apiKeys: candidateKeys,
+    abortSignal
+  });
+  const apiKey = keyLease.apiKey;
+  try {
+    notify(`\u5DF2\u5206\u914D Key (RH\u5E01: ${keyLease.remainCoins})\uFF0C\u6B63\u5728\u5904\u7406\u63D0\u793A\u8BCD\u4E0E\u53C2\u6570...`);
+    let targetPrompt = prompt2 || "";
+    if (isAssetManifestPrompt(targetPrompt)) {
+      const parsed = parseAssetManifest(targetPrompt);
+      if (parsed && parsed.promptText) {
+        targetPrompt = parsed.promptText;
+      }
+    }
+    const cleanPrompt = await stripChineseAnnotations(targetPrompt);
+    const { promptObj, seedUsed } = buildRunningHubRefVideoWorkflow(
+      workflowJson,
+      cleanPrompt,
+      uploadedImages,
+      uploadedAudios,
+      genSettings
+    );
+    if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+    const nodeInfoList = extractNodeInfoListFromWorkflow(workflowJson, promptObj);
+    notify(`\u6B63\u5728\u5411 RunningHub \u63D0\u4EA4\u4EFB\u52A1 (Workflow ID: ${workflowId}, \u79CD\u5B50: ${seedUsed}, \u8986\u76D6\u8282\u70B9\u6570: ${nodeInfoList.length})...`);
+    const payload = {
+      nodeInfoList,
+      addMetadata: true,
+      usePersonalQueue: false
+    };
+    if (settings3.runninghub_instance_type && settings3.runninghub_instance_type !== "default") {
+      payload.instanceType = settings3.runninghub_instance_type;
+    }
+    if (settings3.runninghub_retain_seconds) {
+      const retain = parseInt(settings3.runninghub_retain_seconds, 10);
+      if (!isNaN(retain) && retain >= 10 && retain <= 180) {
+        payload.retainSeconds = retain;
+      }
+    }
+    const createRes = await fetch(`https://www.runninghub.ai/openapi/v2/run/workflow/${workflowId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(payload),
+      signal: abortSignal
+    });
+    const createData = await createRes.json();
+    if (!createData.taskId) {
+      const errDetail = formatRunningHubApiError({ ...createData, _workflowId: workflowId }, "\u521B\u5EFA RunningHub \u751F\u6210\u4EFB\u52A1\u5931\u8D25");
+      throw new Error(errDetail);
+    }
+    const taskId = createData.taskId;
+    notify(`\u4EFB\u52A1\u5DF2\u6210\u529F\u521B\u5EFA (Task ID: ${taskId})\uFF0C\u6B63\u5728\u6392\u961F/\u751F\u6210\u4E2D...`);
+    let attempts = 0;
+    let outputUrl = null;
+    let rhTaskCostTime = null;
+    let rhConsumeCoins = null;
+    while (true) {
+      if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      await sleep(3e3);
+      if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      const statRes = await fetch("https://www.runninghub.ai/openapi/v2/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({ taskId }),
+        signal: abortSignal
+      });
+      const statData = await statRes.json();
+      const status = statData.status;
+      if (status === "SUCCESS") {
+        notify("\u4E91\u7AEF\u751F\u6210\u6210\u529F\uFF01\u6B63\u5728\u83B7\u53D6\u8F93\u51FA\u89C6\u9891\u94FE\u63A5...");
+        if (statData.results && statData.results.length > 0) {
+          const mainItem = statData.results[0];
+          outputUrl = mainItem.url;
+          rhTaskCostTime = statData.taskCostTime != null ? String(statData.taskCostTime) : null;
+          rhConsumeCoins = statData.consumeCoins != null ? String(statData.consumeCoins) : null;
+          const rhDetailParts = [];
+          if (rhTaskCostTime != null) rhDetailParts.push(`RH\u6D88\u8017\u65F6\u95F4: ${rhTaskCostTime}\u79D2`);
+          if (rhConsumeCoins != null) rhDetailParts.push(`\u6D88\u8017RH\u70B9\u6570: ${rhConsumeCoins}`);
+          const rhDetailText = rhDetailParts.length > 0 ? ` (${rhDetailParts.join(", ")})` : "";
+          notify(`[RunningHubVideo v2] \u83B7\u53D6\u5230\u8F93\u51FA URL: ${outputUrl}${rhDetailText} (\u683C\u5F0F: ${mainItem.outputType || "\u672A\u77E5"}, Node: ${mainItem.nodeId})`);
+        } else {
+          throw new Error("RunningHub \u4EFB\u52A1\u6210\u529F\u4F46\u672A\u8FD4\u56DE\u4EFB\u4F55\u8F93\u51FA\u6587\u4EF6");
+        }
+        break;
+      } else if (status === "FAILED") {
+        throw new Error(statData.errorMessage || "RunningHub \u4EFB\u52A1\u6267\u884C\u5931\u8D25");
+      } else {
+        attempts++;
+        notify(`\u4EFB\u52A1\u8FD0\u884C\u4E2D (${status || "QUEUED"})\uFF0C\u5DF2\u8017\u65F6\u7EA6 ${attempts * 3} \u79D2...`);
+      }
+      if (attempts > 300) {

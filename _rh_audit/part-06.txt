@@ -1,0 +1,180 @@
+  try {
+    taskQueue.updateStatus(taskId, "running");
+    const response = await fetch(requestUrl, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify(requestBody),
+      signal: currentAbortController.signal
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+    }
+    const result = await readOpenAIResponse(response);
+    if (change && change.includes("{\u89C6\u9891}")) {
+      const content = result.choices?.[0]?.message?.content;
+      if (typeof content === "string") {
+        const videoSrcMatch = content.match(/src="([^"]+\.mp4[^"]*)"/);
+        if (videoSrcMatch && videoSrcMatch[1]) {
+          const videoUrl = videoSrcMatch[1];
+          addLog(`[Banana] Video URL extracted: ${videoUrl}`);
+          try {
+            const videoResponse = await fetch(videoUrl, { headers: getDirectHeaders() });
+            if (!videoResponse.ok) {
+              throw new Error(`Failed to fetch video: ${videoResponse.status}`);
+            }
+            const videoBlob = await videoResponse.blob();
+            const videoDataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(videoBlob);
+            });
+            const duration2 = ((Date.now() - startTime) / 1e3).toFixed(1);
+            addLog(`[Banana] Video downloaded (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB, \u8017\u65F6 ${duration2} \u79D2)`);
+            taskQueue.completeTask(taskId, true);
+            if (!isPluginToastDisabled()) {
+              toastr.success(`\u2705 Banana \u89C6\u9891\u751F\u6210\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration2} \u79D2`);
+            }
+            currentTaskId3 = null;
+            return { image: videoDataUrl, change: change_ || "", isVideo: true, format: "video/mp4", originalUrl: videoUrl, genParams: _banana_gen_params };
+          } catch (fetchError) {
+            addLog(`[Banana] Failed to download video: ${fetchError.message}`);
+            throw new Error(`\u89C6\u9891\u4E0B\u8F7D\u5931\u8D25: ${fetchError.message}`);
+          }
+        }
+      }
+      throw new Error("Video response did not contain a valid MP4 URL");
+    }
+    let imageUrl = "";
+    const choices = result.choices;
+    if (choices && choices.length > 0) {
+      const content = choices[0].message?.content;
+      const reasoningDetails = choices[0].message?.reasoning_details;
+      if (reasoningDetails?.images && Array.isArray(reasoningDetails.images) && reasoningDetails.images.length > 0) {
+        addLog("[Banana] Detected images array in reasoning_details.");
+        const firstImage = reasoningDetails.images[0];
+        if (firstImage.type === "image_url" && firstImage.image_url) {
+          imageUrl = typeof firstImage.image_url === "string" ? firstImage.image_url : firstImage.image_url.url;
+          addLog("[Banana] Extracted image from reasoning_details.images array.");
+        }
+      }
+      if (!imageUrl && Array.isArray(content)) {
+        for (const item of content) {
+          if (item.type === "image_url" && item.image_url) {
+            imageUrl = typeof item.image_url === "string" ? item.image_url : item.image_url.url;
+            break;
+          }
+        }
+      } else if (!imageUrl && typeof content === "string") {
+        const markdownImageRegex = /!\[.*?\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s\)]+)\)/;
+        const match = content.match(markdownImageRegex);
+        if (match && match[1]) {
+          const mdImageData = match[1];
+          if (mdImageData.startsWith("data:image/")) {
+            addLog("[Banana] Detected Markdown embedded base64 image.");
+            imageUrl = mdImageData;
+            addLog("[Banana] Successfully extracted base64 image from Markdown.");
+          } else {
+            addLog("[Banana] Detected Markdown image URL, extracting...");
+            addLog(`[Banana] Markdown image URL: ${mdImageData}`);
+            try {
+              const imageResponse = await fetch(mdImageData, { headers: getDirectHeaders() });
+              if (!imageResponse.ok) {
+                throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+              }
+              const imageBlob = await imageResponse.blob();
+              const base64Data = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(imageBlob);
+              });
+              imageUrl = base64Data;
+              if (String(extension_settings49[extensionName].convertToJpegStorage) === "true") {
+                imageUrl = await convertImageToJpeg(imageUrl);
+              }
+              addLog("[Banana] Successfully converted Markdown image to base64.");
+            } catch (fetchError) {
+              addLog(`[Banana] Failed to fetch Markdown image: ${fetchError.message}`);
+              imageUrl = mdImageData;
+              addLog("[Banana] Using direct URL as fallback.");
+            }
+          }
+        } else {
+          addLog("[Banana] Response contains text only, no image.");
+        }
+      }
+    }
+    if (!imageUrl) {
+      throw new Error("API response did not contain image in OpenAI format");
+    }
+    const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+    addLog(`[Banana] Image generated successfully (\u8017\u65F6 ${duration} \u79D2).`);
+    taskQueue.completeTask(taskId, true);
+    if (!isPluginToastDisabled()) {
+      toastr.success(isGrok ? `\u2705 Grok \u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2` : `\u2705 Banana \u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
+    }
+    currentTaskId3 = null;
+    return { image: imageUrl, change: change_ || "", genParams: _banana_gen_params };
+  } catch (error) {
+    addLog(`[Banana] Fetch error: ${error.message}`);
+    console.error("[Banana] Fetch error:", error);
+    if (error.name === "AbortError" || error.message === "\u4EFB\u52A1\u5DF2\u53D6\u6D88") {
+      addLog("[Banana] \u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\uFF0C\u4E2D\u65AD\u7F51\u7EDC\u8BF7\u6C42\u3002");
+    } else {
+      taskQueue.completeTask(taskId, false);
+    }
+    currentTaskId3 = null;
+    throw error;
+  }
+}
+async function bananaGenerate(requestData) {
+  clearLog();
+  let { id, prompt: prompt2, width, height, change, retouchPrompt, retouchImage, videoPrompt, videoImage } = requestData;
+  currentRequestId = id;
+  currentPrompt = prompt2;
+  addLog(`[Banana] Received image generation request (ID: ${id})`);
+  let change_ = "";
+  if (change) {
+    change_ = change.replaceAll("{\u4FEE\u56FE}", "").replaceAll("{\u89C6\u9891}", "");
+  } else {
+    change_ = prompt2;
+  }
+  if (change && change.includes("{\u4FEE\u56FE}")) {
+    addLog(`Banana\u4FEE\u56FE\u6A21\u5F0F\u542F\u52A8`);
+    if (retouchPrompt) addLog(`\u4FEE\u56FE\u6307\u4EE4: ${retouchPrompt}`);
+    if (retouchImage) addLog(`\u4FEE\u56FE\u56FE\u7247: [\u5DF2\u63D0\u4F9B]`);
+  }
+  if (change && change.includes("{\u89C6\u9891}")) {
+    addLog(`Banana\u89C6\u9891\u6A21\u5F0F\u542F\u52A8`);
+    if (videoPrompt) addLog(`\u89C6\u9891\u6307\u4EE4: ${videoPrompt}`);
+    if (videoImage) addLog(`\u89C6\u9891\u56FE\u7247: [\u5DF2\u63D0\u4F9B]`);
+  }
+  if (change && change.includes("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}")) {
+    addLog(`[Banana] \u68C0\u6D4B\u5230 {ComfyUI\u5C40\u90E8\u91CD\u7ED8} \u6807\u7B7E\uFF0C\u8F6C\u53D1\u5230 ComfyUI \u5904\u7406`);
+    try {
+      const { image: imageUrl, change: returnedChange, isVideo, format, genParams } = await generateComfyUIImage({ prompt: prompt2, width, height, change, extraNegativePrompt: void 0 });
+      const cleanedChange = returnedChange.replaceAll("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}", "");
+      if (extension_settings49[extensionName].cache != "0") {
+        await setItemImg(prompt2, imageUrl, {
+          change: cleanedChange,
+          genParams,
+          onTailSuccess: () => addLog(`\u56FE\u50CF\u5DF2\u5B58\u5165\u6570\u636E\u5E93 for prompt: ${prompt2}`),
+          onTailError: (e) => {
+            const msg = `\u56FE\u7247\u5DF2\u663E\u793A\uFF0C\u4F46\u4FDD\u5B58\u5230\u6570\u636E\u5E93\u5931\u8D25: ${e?.message || e}`;
+            addLog(`\u9519\u8BEF: ${msg}`);
+            if (typeof toastr !== "undefined") toastr.error(msg);
+          }
+        });
+      } else {
+        addLog(`\u7F13\u5B58\u8BBE\u7F6E\u4E3A\u4E0D\u5B58\u5165\u6570\u636E\u5E93`);
+      }
+      recordImageGeneration("banana", true);
+      eventSource22.emit(EventType.GENERATE_IMAGE_RESPONSE, {
+        id,
+        success: true,
+        imageData: imageUrl,
+        prompt: prompt2,
+        change: cleanedChange,
+        isVideo: isVideo || false,

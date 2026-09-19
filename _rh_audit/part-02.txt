@@ -1,0 +1,180 @@
+  if (!base) return "";
+  if (customEndpoint && customEndpoint.trim()) {
+    const custom = customEndpoint.trim();
+    if (/^https?:\/\//i.test(custom)) return custom;
+    return base + (custom.startsWith("/") ? custom : "/" + custom);
+  }
+  if (/\/images\/generations$/i.test(base) || /\/image\/generation$/i.test(base)) {
+    return base;
+  }
+  if (/\/images\/edits$/i.test(base) || /\/image\/edit$/i.test(base)) {
+    return base.replace(/\/images?\/edits?$/i, "/images/generations");
+  }
+  if (/\/v1$/i.test(base) || /\/v1beta$/i.test(base)) {
+    return base + "/images/generations";
+  }
+  return base + "/v1/images/generations";
+}
+function resolveGrokEditsUrl(apiUrl, customEndpoint) {
+  let base = (apiUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  if (customEndpoint && customEndpoint.trim()) {
+    const custom = customEndpoint.trim();
+    if (/^https?:\/\//i.test(custom)) return custom;
+    return base + (custom.startsWith("/") ? custom : "/" + custom);
+  }
+  if (/\/images\/edits$/i.test(base) || /\/image\/edit$/i.test(base)) {
+    return base;
+  }
+  if (/\/images\/generations$/i.test(base) || /\/image\/generation$/i.test(base)) {
+    return base.replace(/\/images?\/generations?$/i, "/images/edits");
+  }
+  if (/\/v1$/i.test(base) || /\/v1beta$/i.test(base)) {
+    return base + "/images/edits";
+  }
+  return base + "/v1/images/edits";
+}
+async function collectBananaReferenceImages({ retouchImage, finalPrompt, conversationPreset, bananaCharacterPresets }) {
+  const images = [];
+  if (retouchImage) {
+    images.push(retouchImage);
+  }
+  if (bananaCharacterPresets && finalPrompt) {
+    for (const presetName in bananaCharacterPresets) {
+      const charPreset = bananaCharacterPresets[presetName];
+      const triggers = (charPreset?.triggers || "").split("|").filter((t) => t.trim() !== "");
+      for (const trigger of triggers) {
+        if (finalPrompt.toLowerCase().includes(trigger.toLowerCase())) {
+          if (charPreset.conversation) {
+            const userImg = await getImageFromTurnData(charPreset.conversation.user);
+            if (userImg && !images.includes(userImg)) images.push(userImg);
+            const modelImg = await getImageFromTurnData(charPreset.conversation.model);
+            if (modelImg && !images.includes(modelImg)) images.push(modelImg);
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (conversationPreset?.conversation && Array.isArray(conversationPreset.conversation)) {
+    for (const turn of conversationPreset.conversation) {
+      const uImg = await getImageFromTurnData(turn.user);
+      if (uImg && !images.includes(uImg)) images.push(uImg);
+      const mImg = await getImageFromTurnData(turn.model);
+      if (mImg && !images.includes(mImg)) images.push(mImg);
+    }
+  }
+  return images;
+}
+async function readOpenAIResponse(response) {
+  const text = await response.text();
+  const trimmed = text.trimStart();
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  const isSSE = contentType.includes("text/event-stream") || trimmed.startsWith("data:") || /\n\s*data:\s*/.test(text);
+  if (!isSSE) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(`\u65E0\u6CD5\u89E3\u6790\u54CD\u5E94 JSON: ${e.message}; \u539F\u59CB\u54CD\u5E94: ${text.slice(0, 500)}`);
+    }
+  }
+  addLog("[Banana] \u68C0\u6D4B\u5230 SSE \u6D41\u5F0F\u54CD\u5E94\uFF0C\u5F00\u59CB\u805A\u5408 chunk");
+  let aggregatedContentText = "";
+  const aggregatedContentParts = [];
+  let aggregatedReasoningText = "";
+  const aggregatedImages = [];
+  let finishReason = null;
+  let usage = null;
+  let model = null;
+  let id = null;
+  const lines = text.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(":")) continue;
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    let chunk;
+    try {
+      chunk = JSON.parse(payload);
+    } catch (e) {
+      addLog(`[Banana] \u8DF3\u8FC7\u65E0\u6CD5\u89E3\u6790\u7684 SSE chunk: ${payload.slice(0, 200)}`);
+      continue;
+    }
+    if (chunk.id && !id) id = chunk.id;
+    if (chunk.model && !model) model = chunk.model;
+    if (chunk.usage) usage = chunk.usage;
+    const choice = chunk.choices && chunk.choices[0];
+    if (!choice) continue;
+    const delta = choice.delta || choice.message || {};
+    if (typeof delta.content === "string") {
+      aggregatedContentText += delta.content;
+    } else if (Array.isArray(delta.content)) {
+      for (const item of delta.content) {
+        if (item && item.type === "text" && typeof item.text === "string") {
+          aggregatedContentText += item.text;
+        } else {
+          aggregatedContentParts.push(item);
+        }
+      }
+    }
+    if (typeof delta.reasoning_content === "string") {
+      aggregatedReasoningText += delta.reasoning_content;
+    }
+    const rd = delta.reasoning_details;
+    if (rd && Array.isArray(rd.images)) {
+      for (const img of rd.images) aggregatedImages.push(img);
+    }
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+  }
+  let messageContent;
+  if (aggregatedContentParts.length > 0) {
+    messageContent = [...aggregatedContentParts];
+    if (aggregatedContentText) {
+      messageContent.unshift({ type: "text", text: aggregatedContentText });
+    }
+  } else {
+    messageContent = aggregatedContentText;
+  }
+  const message = { role: "assistant", content: messageContent };
+  if (aggregatedReasoningText) message.reasoning_content = aggregatedReasoningText;
+  if (aggregatedImages.length > 0) message.reasoning_details = { images: aggregatedImages };
+  addLog(`[Banana] SSE \u805A\u5408\u5B8C\u6210\uFF1Atext=${aggregatedContentText.length} \u5B57\u7B26\uFF0Cimages=${aggregatedImages.length}\uFF0Creasoning=${aggregatedReasoningText.length} \u5B57\u7B26`);
+  return {
+    id,
+    object: "chat.completion",
+    model,
+    choices: [{ index: 0, message, finish_reason: finishReason || "stop" }],
+    usage: usage || void 0
+  };
+}
+async function generateBananaImage({ prompt: prompt2, width, height, change, retouchPrompt, retouchImage, videoPrompt, videoImage }) {
+  clearLog();
+  const taskId = taskQueue.addTask({
+    name: (prompt2 || "").substring(0, 30) + (prompt2 && prompt2.length > 30 ? "..." : ""),
+    type: TaskType.BANANA,
+    prompt: prompt2
+  });
+  currentTaskId3 = taskId;
+  currentAbortController = new AbortController();
+  taskQueue.updateStatus(taskId, TaskStatus.RUNNING);
+  const startTime = Date.now();
+  const isGrok = String(extension_settings49[extensionName]?.banana?.useGrokFormat) === "true";
+  if (!isPluginToastDisabled()) {
+    toastr.info(isGrok ? "\u{1F3A8} \u5DF2\u53D1\u8D77 Grok \u751F\u56FE\u8BF7\u6C42..." : "\u{1F34C} \u5DF2\u53D1\u8D77 Banana \u751F\u56FE\u8BF7\u6C42...");
+  }
+  if (change && change.includes("{\u89C6\u9891}")) {
+    addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\uFF1A\u8DF3\u8FC7\u56FE\u7247\u63D0\u793A\u8BCD\u5904\u7406\uFF0C\u76F4\u63A5\u6784\u5EFA\u89C6\u9891\u8BF7\u6C42`);
+    const bananaSettings2 = extension_settings49[extensionName].banana;
+    const { videoModel: videoModel2, model: model2, apiUrl: apiUrl2, apiKey: apiKey2, conversationPresets: conversationPresets2, videoPresetId: videoPresetId2, aspectRatio: aspectRatio2 } = bananaSettings2;
+    const useModel = videoModel2 || model2;
+    addLog(`[Banana] \u89C6\u9891\u6A21\u5F0F\u4F7F\u7528\u6A21\u578B: ${useModel}`);
+    const selectedVideoPresetId = videoPresetId2 || "\u9ED8\u8BA4";
+    const preset = conversationPresets2[selectedVideoPresetId] || { conversation: [], fixedPrompt: "" };
+    addLog(`[Banana] \u4F7F\u7528\u89C6\u9891\u9884\u8BBE: "${selectedVideoPresetId}"`);
+    const history = [];
+    for (const turn of preset.conversation) {
+      const userContent2 = [];
+      if (turn.user?.text) userContent2.push({ type: "text", text: turn.user.text });
+      const userImage = await getImageFromTurnData(turn.user);
+      if (userImage) userContent2.push({ type: "image_url", image_url: { url: userImage } });
