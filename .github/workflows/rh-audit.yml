@@ -1,0 +1,42 @@
+name: Inspect RunningHub integration
+on:
+  push:
+    branches: [fix/runninghub-cloud-validation]
+    paths: [.github/workflows/rh-audit.yml]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract public source for focused review
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, json
+          s = Path('index.js').read_text(encoding='utf-8')
+          p = Path('_rh_audit')
+          p.mkdir(exist_ok=True)
+          anchor = s.index('function extractNodeInfoListFromWorkflow(')
+          a = s.rfind('\n', 0, anchor - 75000) + 1
+          b = s.find('\n', anchor + 145000)
+          lines = s[a:b].splitlines(keepends=True)
+          report = []
+          for n in range(0, len(lines), 180):
+              name = f'part-{n//180:02}.txt'
+              text = ''.join(lines[n:n+180])
+              (p / name).write_text(text, encoding='utf-8')
+              names = re.findall(r'^(?:async )?function ([^(]+)', text, re.M)
+              report.append({'path': '_rh_audit/'+name, 'functions': names, 'start': text[:100], 'end': text[-100:]})
+          (p/'index.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          all_names = re.findall(r'^(?:(?:async )?function ([^(]+)|// ([^\n]+))', s, re.M)
+          (p/'symbols.json').write_text(json.dumps([x for x in all_names if any(re.search(r'RunningHub|runninghub|request|Request|fetch|Fetch', v) for v in x)], indent=2), encoding='utf-8')
+          PY
+      - name: Save audit fragments on the repair branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add _rh_audit
+          git commit -m 'chore: capture RunningHub source for integration review'
+          git push origin HEAD:fix/runninghub-cloud-validation
