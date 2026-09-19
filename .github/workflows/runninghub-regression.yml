@@ -1,0 +1,37 @@
+name: RunningHub regression
+on:
+  push:
+    branches: [main, fix/runninghub-cloud-validation-ready]
+    paths:
+      - index.js
+      - runninghub-workflow.mjs
+      - tests/runninghub-*.test.mjs
+      - .github/workflows/runninghub-regression.yml
+  pull_request:
+    paths:
+      - index.js
+      - runninghub-workflow.mjs
+      - tests/runninghub-*.test.mjs
+      - .github/workflows/runninghub-regression.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --input-type=module --check < index.js
+          node --check runninghub-workflow.mjs
+      - name: Unit and production-entry integration tests (mock network)
+        run: |
+          set -o pipefail
+          node --test tests/runninghub-workflow.test.mjs tests/runninghub-integration.test.mjs | tee runninghub-tests.tap
+          tail -9 runninghub-tests.tap >> "$GITHUB_STEP_SUMMARY"
