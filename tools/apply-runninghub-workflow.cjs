@@ -20,10 +20,17 @@ for (const [template, id] of [['rawJson', 'workflowId'], ['targetWorkerJson', 't
     `        isTaskCancelled: () => !taskQueue.isTaskInQueue(taskId)\n` +
     `      });`);
 }
+once('const nodeInfoList = extractNodeInfoListFromWorkflow(workflowJson, promptObj);',
+  'const nodeInfoList = await prepareRunningHubNodeInfo({\n' +
+  '      rawJson: workflowJson, promptObj, workflowId, apiKey,\n' +
+  '      includeLiterals: settings3.runninghub_send_fixed_inputs,\n' +
+  '      isTaskCancelled: () => abortSignal?.aborted === true\n' +
+  '    });');
 once('function initRunningHubUI(settingsModal) {\n  const settings3 = extension_settings80[extensionName];',
   'function initRunningHubUI(settingsModal) {\n  const settings3 = extension_settings80[extensionName];\n' +
   '  bindRunningHubOverrideControl(settingsModal, settings3, saveSettingsDebounced53);');
 source = 'import { prepareRunningHubNodeInfo, bindRunningHubOverrideControl } from "./runninghub-workflow.mjs";\n' + source;
-assert.equal((source.match(/const nodeInfoList = await prepareRunningHubNodeInfo\(/g) || []).length, 2);
+assert.equal((source.match(/const nodeInfoList = await prepareRunningHubNodeInfo\(/g) || []).length, 3);
+assert.ok(!source.includes('extractNodeInfoListFromWorkflow'), 'Unpatched caller remains');
 fs.writeFileSync('index.js', source, 'utf8');
-console.log('Patched both RunningHub callers and settings UI; no workflows or personal settings modified.');
+console.log('Patched all three RunningHub callers and settings UI; no workflows or personal settings modified.');
