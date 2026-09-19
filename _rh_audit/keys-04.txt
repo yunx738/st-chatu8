@@ -1,0 +1,69 @@
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[RunningHub Key\u6C60] \u6CE8\u518C\u4EFB\u52A1\u53D6\u6D88\u4E8B\u4EF6\u76D1\u542C\u5931\u8D25:", e);
+    }
+    if (typeof window !== "undefined") {
+      window.resetRunningHubKeyActiveCounts = resetAllKeyActiveCounts;
+    }
+  }
+});
+
+// utils/settings/worker.js
+
+
+function eidtJSON(obj) {
+  for (let key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      if (typeof obj[key] === "object" && obj[key] !== null) {
+        eidtJSON(obj[key]);
+      } else {
+        if (key.includes("seed")) {
+          obj[key] = "%seed%";
+        }
+        if (key == "steps") {
+          obj[key] = "%steps%";
+        }
+        if (key == "cfg") {
+          obj[key] = "%cfg_scale%";
+        }
+        if (key == "sampler_name") {
+          obj[key] = "%sampler_name%";
+        }
+        if (key == "width") {
+          obj[key] = "%width%";
+        }
+        if (key == "height") {
+          obj[key] = "%height%";
+        }
+        if (key == "ckpt_name") {
+          obj[key] = "%MODEL_NAME%";
+        }
+        if (key == "positive") {
+          obj[key] = "%prompt%";
+        }
+        if (key == "negative") {
+          obj[key] = "%negative_prompt%";
+        }
+        if (key == "text" && obj[key] == "\u6B63\u9762") {
+          obj[key] = "%prompt%";
+        }
+        if (key == "text" && obj[key] == "\u8D1F\u9762") {
+          obj[key] = "%negative_prompt%";
+        }
+      }
+    }
+  }
+  return obj;
+}
+function eidtwork() {
+  alert("\u8BF7\u5728\u5BFC\u51FA\u65F6\u8BBE\u7F6E\u4E3A\u6B63\u9762\u63D0\u793A\u8BCD\u201C\u6B63\u9762\u201D\uFF0C\u8D1F\u9762\u8BBE\u7F6E\u4E3A\u201D\u8D1F\u9762\u201D\uFF0C\u60C5\u51B5\u590D\u6742\uFF0C\u4E0D\u4FDD\u8BC1\u53EF\u7528\u6027\u3002\u4F1A\u7B80\u6613\u7684\u66FF\u6362\uFF1A\u6A21\u578B\u540D\u79F0\u3001\u63D0\u793A\u8BCD\u3001\u6B65\u6570\u3001cfg\u3001\u91C7\u6837\u5668\u3001\u5BBD\u5EA6\u3001\u9AD8\u5EA6\u3001seed\u3002");
+  let el = document.getElementById("worker");
+  try {
+    let textrejsons = JSON.parse(el.value.trim());
+    textrejsons = eidtJSON(textrejsons);
+    el.value = JSON.stringify(textrejsons, null, 2);
+  } catch (e) {
+    alert("\u8BF7\u8F93\u5165\u6B63\u786E\u7684json" + e);
+  }

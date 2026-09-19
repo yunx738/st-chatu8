@@ -1,0 +1,57 @@
+[
+  {
+    "path": "_rh_audit/ui-00.txt",
+    "start": "function initRunningHubUI(settingsModal) {\n  const settings3 = extension_settings80[extensionName];\n",
+    "end": "       pendingRunningHubSwap = { type: null, index: null };\n          renderRunningHubImageCards();\n"
+  },
+  {
+    "path": "_rh_audit/ui-01.txt",
+    "start": "          toastr.info(\"\\u5DF2\\u53D6\\u6D88\\u4EA4\\u6362\");\n        } else if (pendingRunningHubSwap.ty",
+    "end": "HTML = `<i class=\"fa-solid fa-triangle-exclamation\"></i> \\u4E0A\\u4F20\\u5931\\u8D25: ${err.message}`;\n"
+  },
+  {
+    "path": "_rh_audit/ui-02.txt",
+    "start": "            stat.style.color = \"#f44336\";\n          }\n          if (window.toastr) toastr.error(`\\u5",
+    "end": "t-chatu8-preview-muted\");\n          $overlay.css(\"display\", \"flex\");\n        } else {\n          $aud"
+  },
+  {
+    "path": "_rh_audit/keys-00.txt",
+    "start": "// utils/runninghubKeyManager.js\n\n\nfunction getLocalDateString(date = /* @__PURE__ */ new Date()) {\n",
+    "end": "sDebounced28();\n}\nfunction parseRunningHubApiKeys(apiKeySetting) {\n  if (!apiKeySetting) return [];\n"
+  },
+  {
+    "path": "_rh_audit/keys-01.txt",
+    "start": "  let list = [];\n  if (Array.isArray(apiKeySetting)) {\n    list = apiKeySetting.map((k) => String(k)",
+    "end": "nMoney: 0,\n      errorCode: -1,\n      error: err.message || \"\\u7F51\\u7EDC\\u8FDE\\u63A5\\u5F02\\u5E38\",\n"
+  },
+  {
+    "path": "_rh_audit/keys-02.txt",
+    "start": "      timestamp: now\n    };\n  }\n}\nfunction invalidateBalanceCache(apiKey) {\n  if (apiKey) {\n    bala",
+    "end": "ontinue;\n          }\n          if (!queueInfo.isAvailable || queueInfo.available <= currentLocal) {\n"
+  },
+  {
+    "path": "_rh_audit/keys-03.txt",
+    "start": "            busyCount++;\n            addLog(`[RunningHub Key\\u6C60] Key #${i + 1} (${maskedKey}) \\u5",
+    "end": "d\", (data) => {\n          if (data && data.taskId) {\n            releaseTaskKeyLeases(data.taskId);\n"
+  },
+  {
+    "path": "_rh_audit/keys-04.txt",
+    "start": "          }\n        });\n      }\n    } catch (e) {\n      console.warn(\"[RunningHub Key\\u6C60] \\u6CE8\\",
+    "end": "xtrejsons, null, 2);\n  } catch (e) {\n    alert(\"\\u8BF7\\u8F93\\u5165\\u6B63\\u786E\\u7684json\" + e);\n  }\n"
+  },
+  {
+    "path": "_rh_audit/direct-00.txt",
+    "start": "async function executeRunningHubVideoDirectTest({\n  prompt: prompt2,\n  workflowJson,\n  workflowId,\n ",
+    "end": "Buffer();\n    let finalMediaData = null;\n    let isVideo = true;\n    let mediaFormat = \"video/mp4\";\n"
+  },
+  {
+    "path": "_rh_audit/direct-01.txt",
+    "start": "    const isZip = outputUrl.toLowerCase().includes(\".zip\") || fileBlob.type.includes(\"zip\") || fileB",
+    "end": "j.node_errors;\n    let nodeErrSummary = \"\";\n    if (nodeErrors && typeof nodeErrors === \"object\") {\n"
+  },
+  {
+    "path": "_rh_audit/direct-02.txt",
+    "start": "      const parts = [];\n      for (const [nodeId, nErr] of Object.entries(nodeErrors)) {\n        con",
+    "end": "    const nodeType = nErr.class_type || \"\";\n        const nodeMessages = Array.isArray(nErr.errors) "
+  }
+]

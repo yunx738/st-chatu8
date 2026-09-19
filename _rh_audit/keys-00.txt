@@ -1,0 +1,130 @@
+// utils/runninghubKeyManager.js
+
+
+function getLocalDateString(date = /* @__PURE__ */ new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function recordKeyConsumption(apiKey, coins) {
+  if (!apiKey) return;
+  const numCoins = parseFloat(coins);
+  if (isNaN(numCoins) || numCoins <= 0) return;
+  const settings3 = extension_settings46[extensionName];
+  if (!settings3) return;
+  if (!settings3.runninghub_key_consumption) {
+    settings3.runninghub_key_consumption = {};
+  }
+  if (!settings3.runninghub_key_consumption[apiKey]) {
+    settings3.runninghub_key_consumption[apiKey] = {};
+  }
+  const todayStr = getLocalDateString();
+  const current = parseFloat(settings3.runninghub_key_consumption[apiKey][todayStr] || 0);
+  const updated = Math.round((current + numCoins) * 100) / 100;
+  settings3.runninghub_key_consumption[apiKey][todayStr] = updated;
+  saveSettingsDebounced28();
+  if (eventSource20 && typeof eventSource20.emit === "function") {
+    eventSource20.emit("rh_consumption_updated", { apiKey, coins: numCoins, date: todayStr });
+  }
+  keyReleaseEventTarget.dispatchEvent(new CustomEvent("consumptionUpdated", { detail: { apiKey, coins: numCoins } }));
+  addLog(`[RunningHub \u6D88\u8017] Key (${apiKey.slice(0, 5)}...${apiKey.slice(-4)}) \u672C\u6B21\u6D88\u8017 ${numCoins} RH\u5E01\uFF0C\u4ECA\u65E5\u7D2F\u8BA1: ${updated} RH\u5E01`);
+}
+function getKeyConsumptionStats(apiKey) {
+  const defaultStats = { today: 0, sevenDays: 0, thirtyDays: 0, total: 0 };
+  if (!apiKey) return defaultStats;
+  const settings3 = extension_settings46[extensionName] || {};
+  const records = settings3.runninghub_key_consumption?.[apiKey];
+  if (!records || typeof records !== "object") {
+    return defaultStats;
+  }
+  const now = /* @__PURE__ */ new Date();
+  const todayStr = getLocalDateString(now);
+  const sevenDaysSet = /* @__PURE__ */ new Set();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    sevenDaysSet.add(getLocalDateString(d));
+  }
+  const thirtyDaysSet = /* @__PURE__ */ new Set();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    thirtyDaysSet.add(getLocalDateString(d));
+  }
+  let today = 0;
+  let sevenDays = 0;
+  let thirtyDays = 0;
+  let total = 0;
+  for (const [dateStr, val] of Object.entries(records)) {
+    const amt = parseFloat(val);
+    if (isNaN(amt)) continue;
+    total += amt;
+    if (dateStr === todayStr) {
+      today += amt;
+    }
+    if (sevenDaysSet.has(dateStr)) {
+      sevenDays += amt;
+    }
+    if (thirtyDaysSet.has(dateStr)) {
+      thirtyDays += amt;
+    }
+  }
+  return {
+    today: Math.round(today * 100) / 100,
+    sevenDays: Math.round(sevenDays * 100) / 100,
+    thirtyDays: Math.round(thirtyDays * 100) / 100,
+    total: Math.round(total * 100) / 100
+  };
+}
+function releaseTaskKeyLeases(taskId) {
+  if (!taskId) return;
+  const leases = taskLeaseRegistry.get(taskId);
+  if (leases && leases.size > 0) {
+    for (const releaseFn of Array.from(leases)) {
+      try {
+        if (typeof releaseFn === "function") {
+          releaseFn();
+        }
+      } catch (e) {
+        console.warn("[RunningHub Key\u6C60] \u515C\u5E95\u91CA\u653E\u79DF\u7EA6\u5F02\u5E38:", e);
+      }
+    }
+    taskLeaseRegistry.delete(taskId);
+  }
+}
+function resetAllKeyActiveCounts() {
+  localActiveTasksByKey.clear();
+  taskLeaseRegistry.clear();
+  addLog("[RunningHub Key\u6C60] \u5DF2\u5F3A\u5236\u91CD\u7F6E\u6240\u6709\u672C\u5730 Key \u5E76\u53D1\u8BA1\u6570\u4E3A 0");
+  notifyNextKeyWaiter();
+  keyReleaseEventTarget.dispatchEvent(new Event("keyReleased"));
+}
+function getLocalActiveCount(apiKey) {
+  if (!apiKey) return 0;
+  return localActiveTasksByKey.get(apiKey) || 0;
+}
+function getKeyLocalLimit(apiKey) {
+  if (!apiKey) return 0;
+  const settings3 = extension_settings46[extensionName] || {};
+  const val = settings3.runninghub_key_local_limits?.[apiKey];
+  const num = parseInt(val, 10);
+  return isNaN(num) || num <= 0 ? 0 : num;
+}
+function setKeyLocalLimit(apiKey, limit) {
+  if (!apiKey) return;
+  const settings3 = extension_settings46[extensionName];
+  if (!settings3) return;
+  if (!settings3.runninghub_key_local_limits) {
+    settings3.runninghub_key_local_limits = {};
+  }
+  const num = parseInt(limit, 10);
+  if (isNaN(num) || num <= 0) {
+    delete settings3.runninghub_key_local_limits[apiKey];
+  } else {
+    settings3.runninghub_key_local_limits[apiKey] = num;
+  }
+  saveSettingsDebounced28();
+}
+function parseRunningHubApiKeys(apiKeySetting) {
+  if (!apiKeySetting) return [];

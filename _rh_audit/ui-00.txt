@@ -1,0 +1,130 @@
+function initRunningHubUI(settingsModal) {
+  const settings3 = extension_settings80[extensionName];
+  if (!settings3.runninghub_uploadedMedia) {
+    settings3.runninghub_uploadedMedia = { img: {}, aud: {} };
+  }
+  let pendingRunningHubSwap = { type: null, index: null };
+  function swapRunningHubMedia(type, idxA, idxB) {
+    if (idxA === idxB) return;
+    if (type === "img") {
+      const ctrlA = settings3[`runninghub_img_ctrl_${idxA}`] || "bypass";
+      settings3[`runninghub_img_ctrl_${idxA}`] = settings3[`runninghub_img_ctrl_${idxB}`] || "bypass";
+      settings3[`runninghub_img_ctrl_${idxB}`] = ctrlA;
+      const descA = settings3[`runninghub_img_desc_${idxA}`] || "";
+      settings3[`runninghub_img_desc_${idxA}`] = settings3[`runninghub_img_desc_${idxB}`] || "";
+      settings3[`runninghub_img_desc_${idxB}`] = descA;
+      const sessA = sessionUploadedMedia.img?.[idxA];
+      const sessB = sessionUploadedMedia.img?.[idxB];
+      if (sessB !== void 0) sessionUploadedMedia.img[idxA] = sessB;
+      else delete sessionUploadedMedia.img[idxA];
+      if (sessA !== void 0) sessionUploadedMedia.img[idxB] = sessA;
+      else delete sessionUploadedMedia.img[idxB];
+      if (!sessionUploadedMedia.imgFiles) sessionUploadedMedia.imgFiles = {};
+      const fileA = sessionUploadedMedia.imgFiles[idxA];
+      const fileB = sessionUploadedMedia.imgFiles[idxB];
+      if (fileB !== void 0) sessionUploadedMedia.imgFiles[idxA] = fileB;
+      else delete sessionUploadedMedia.imgFiles[idxA];
+      if (fileA !== void 0) sessionUploadedMedia.imgFiles[idxB] = fileA;
+      else delete sessionUploadedMedia.imgFiles[idxB];
+      saveSettingsDebounced53();
+      renderRunningHubImageCards();
+      toastr.success(`\u5DF2\u6210\u529F\u4EA4\u6362 <Picture ${idxA}> \u4E0E <Picture ${idxB}> \u7684\u4F4D\u7F6E\u4E0E\u914D\u7F6E\uFF01`);
+    } else if (type === "aud") {
+      const ctrlA = settings3[`runninghub_aud_ctrl_${idxA}`] || "bypass";
+      settings3[`runninghub_aud_ctrl_${idxA}`] = settings3[`runninghub_aud_ctrl_${idxB}`] || "bypass";
+      settings3[`runninghub_aud_ctrl_${idxB}`] = ctrlA;
+      const descA = settings3[`runninghub_aud_desc_${idxA}`] || "";
+      settings3[`runninghub_aud_desc_${idxA}`] = settings3[`runninghub_aud_desc_${idxB}`] || "";
+      settings3[`runninghub_aud_desc_${idxB}`] = descA;
+      const sessA = sessionUploadedMedia.aud?.[idxA];
+      const sessB = sessionUploadedMedia.aud?.[idxB];
+      if (sessB !== void 0) sessionUploadedMedia.aud[idxA] = sessB;
+      else delete sessionUploadedMedia.aud[idxA];
+      if (sessA !== void 0) sessionUploadedMedia.aud[idxB] = sessA;
+      else delete sessionUploadedMedia.aud[idxB];
+      if (!sessionUploadedMedia.audFiles) sessionUploadedMedia.audFiles = {};
+      const fileA = sessionUploadedMedia.audFiles[idxA];
+      const fileB = sessionUploadedMedia.audFiles[idxB];
+      if (fileB !== void 0) sessionUploadedMedia.audFiles[idxA] = fileB;
+      else delete sessionUploadedMedia.audFiles[idxA];
+      if (fileA !== void 0) sessionUploadedMedia.audFiles[idxB] = fileA;
+      else delete sessionUploadedMedia.audFiles[idxB];
+      saveSettingsDebounced53();
+      renderRunningHubAudioCards();
+      toastr.success(`\u5DF2\u6210\u529F\u4EA4\u6362 <Audio ${idxA}> \u4E0E <Audio ${idxB}> \u7684\u4F4D\u7F6E\u4E0E\u914D\u7F6E\uFF01`);
+    }
+  }
+  function renderRunningHubImageCards() {
+    const imgContainer = document.getElementById("runninghub_img_container");
+    if (!imgContainer) return;
+    imgContainer.innerHTML = "";
+    const hasPending = pendingRunningHubSwap.type === "img" && pendingRunningHubSwap.index !== null;
+    for (let i = 1; i <= 9; i++) {
+      const card = document.createElement("div");
+      card.className = "st-chatu8-card";
+      const savedCtrl = settings3[`runninghub_img_ctrl_${i}`] || "bypass";
+      const savedDesc = settings3[`runninghub_img_desc_${i}`] || "";
+      const currentSessionFile = sessionUploadedMedia.img?.[i] || "";
+      const isCurrentSelected = pendingRunningHubSwap.type === "img" && pendingRunningHubSwap.index === i;
+      let borderCss = "border: 1px solid var(--st-chatu8-border-color, rgba(255,255,255,0.1));";
+      let bgCss = "background: var(--st-chatu8-bg-secondary, rgba(255,255,255,0.03));";
+      if (isCurrentSelected) {
+        borderCss = "border: 2px solid #f59e0b; box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);";
+        bgCss = "background: rgba(245, 158, 11, 0.08);";
+      } else if (hasPending) {
+        borderCss = "border: 1px dashed rgba(96, 165, 250, 0.5);";
+      }
+      card.style.cssText = `padding: 12px; ${borderCss} border-radius: 8px; ${bgCss} display: flex; flex-direction: column; gap: 10px; transition: all 0.2s ease;`;
+      card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                    <span style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+                        <i class="fa-solid fa-image" style="color: #60a5fa;"></i> &lt;Picture ${i}&gt;
+                    </span>
+                    <div class="st-chatu8-media-header-controls">
+                        <button type="button" class="st-chatu8-btn runninghub-swap-btn st-chatu8-swap-btn ${isCurrentSelected ? "is-active" : ""}" data-type="img" data-index="${i}" title="${isCurrentSelected ? "\u70B9\u51FB\u53D6\u6D88\u4EA4\u6362" : hasPending ? "\u70B9\u51FB\u4E0E\u9009\u4E2D\u7684\u9879\u4E92\u6362" : "\u70B9\u51FB\u9009\u62E9\u8981\u4EA4\u6362\u7684\u5361\u7247"}">
+                            ${isCurrentSelected ? '<i class="fa-solid fa-xmark"></i> \u53D6\u6D88' : hasPending ? '<i class="fa-solid fa-arrow-right-arrow-left"></i> \u4E92\u6362' : '<i class="fa-solid fa-arrow-right-arrow-left"></i> \u4EA4\u6362'}
+                        </button>
+                        <select id="runninghub_img_ctrl_${i}" class="st-chatu8-select st-chatu8-ctrl-select">
+                            <option value="open" ${savedCtrl === "open" ? "selected" : ""}>\u5F00\u542F</option>
+                            <option value="bypass" ${savedCtrl === "bypass" ? "selected" : ""}>\u8DF3\u8FC7 (Bypass)</option>
+                            <option value="mute" ${savedCtrl === "mute" ? "selected" : ""}>\u505C\u7528 (Mute)</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div id="runninghub_stat_img_${i}" style="font-size: 11px; color: ${currentSessionFile ? "#4caf50" : "var(--st-chatu8-text-secondary, #888)"}; word-break: break-all;">
+                        ${currentSessionFile ? `<i class="fa-solid fa-check-circle"></i> \u5DF2\u5C31\u7EEA: ${currentSessionFile}` : "\u672A\u4E0A\u4F20\u53C2\u8003\u56FE\uFF08\u81EA\u52A8\u4F7F\u7528\u9ED8\u8BA4\u515C\u5E95\uFF09"}
+                    </div>
+                    <div class="st-chatu8-media-preview-box" id="runninghub_img_preview_box_${i}" style="display: ${currentSessionFile || sessionUploadedMedia.imgFiles?.[i] ? "flex" : "none"};">
+                        <img id="runninghub_preview_img_${i}" class="${savedCtrl === "mute" && (currentSessionFile || sessionUploadedMedia.imgFiles?.[i]) ? "st-chatu8-preview-muted" : ""}" style="max-width: 100%; max-height: 120px; border-radius: 4px; object-fit: contain;">
+                        <div class="st-chatu8-media-mute-overlay" id="runninghub_img_mute_overlay_${i}" style="display: ${savedCtrl === "mute" && (currentSessionFile || sessionUploadedMedia.imgFiles?.[i]) ? "flex" : "none"};">
+                            <div class="st-chatu8-mute-badge">
+                                <i class="fa-solid fa-ban" style="color: #ef4444;"></i>
+                                <span>\u5DF2\u505C\u7528</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <input type="file" id="runninghub_file_img_${i}" accept="image/*" style="display: none;">
+                        <button type="button" class="st-chatu8-btn primary" id="runninghub_upload_btn_img_${i}" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;" title="\u4ECE\u7535\u8111\u672C\u5730\u4E0A\u4F20\u56FE\u7247"><i class="fa-solid fa-upload"></i> \u672C\u5730\u4E0A\u4F20</button>
+                        <button type="button" class="st-chatu8-btn" id="runninghub_asset_btn_img_${i}" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;" title="\u4ECE\u89C6\u9891\u8D44\u4EA7\u5E93\u4E2D\u9009\u53D6\u56FE\u7247\u7D20\u6750"><i class="fa-solid fa-photo-film"></i> \u89C6\u9891\u8D44\u4EA7</button>
+                        <button type="button" class="st-chatu8-btn danger" id="runninghub_clear_img_${i}" style="padding: 6px 12px; font-size: 12px; ${currentSessionFile ? "" : "display: none;"}" title="\u6E05\u7A7A"><i class="fa-solid fa-trash"></i> \u6E05\u7A7A</button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="runninghub_img_desc_${i}" style="font-size: 11px; color: var(--st-chatu8-text-secondary, #888);"><i class="fa-solid fa-pen-to-square"></i> \u56FE\u7247\u7B80\u4ECB (\u968F\u56FE\u4F20\u7ED9LLM)</label>
+                        <textarea id="runninghub_img_desc_${i}" class="st-chatu8-textarea" rows="2" placeholder="\u8F93\u5165\u56FE\u7247 ${i} \u7B80\u4ECB\u6216\u753B\u9762\u8BF4\u660E..." style="font-size: 12px; padding: 4px 8px; resize: vertical; min-height: 38px;">${escapeHtml6(savedDesc)}</textarea>
+                    </div>
+                </div>
+            `;
+      imgContainer.appendChild(card);
+      if (sessionUploadedMedia.imgFiles?.[i]) {
+        const previewEl = document.getElementById(`runninghub_preview_img_${i}`);
+        if (previewEl) {
+          previewEl.src = URL.createObjectURL(sessionUploadedMedia.imgFiles[i]);
+        }
+      }
+      $(`.runninghub-swap-btn[data-type="img"][data-index="${i}"]`).on("click", (e) => {
+        e.stopPropagation();
+        if (pendingRunningHubSwap.type === "img" && pendingRunningHubSwap.index === i) {
+          pendingRunningHubSwap = { type: null, index: null };
+          renderRunningHubImageCards();

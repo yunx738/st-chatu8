@@ -1,0 +1,4 @@
+      const parts = [];
+      for (const [nodeId, nErr] of Object.entries(nodeErrors)) {
+        const nodeType = nErr.class_type || "";
+        const nodeMessages = Array.isArray(nErr.errors) 

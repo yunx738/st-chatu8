@@ -1,0 +1,130 @@
+            busyCount++;
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u5B98\u65B9\u53EF\u7528\u5E76\u53D1\u4E0D\u8DB3 (\u5B98\u65B9\u8FD0\u884C\u4E2D: ${queueInfo.runningCount}/${queueInfo.limit}, \u672C\u5730\u5728\u9014: ${currentLocal})\uFF0C\u8FDB\u5165\u7B49\u5F85\u6392\u961F`);
+            continue;
+          }
+          const balanceInfo = await checkKeyHasBalance(key);
+          if (!balanceInfo.isValid) {
+            const errText = balanceInfo.error || "\u8D26\u6237\u72B6\u6001\u67E5\u8BE2\u5931\u8D25";
+            invalidKeyErrors.push({ key, error: errText, code: balanceInfo.errorCode });
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u8D26\u6237\u4F59\u989D\u67E5\u8BE2\u5931\u8D25 (${errText})\uFF0C\u8DF3\u8FC7`);
+            continue;
+          }
+          if (!balanceInfo.hasBalance) {
+            zeroBalanceCount++;
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u4F59\u989D\u4E0D\u8DB3\u6216\u5DF2\u7528\u5C3D (RH\u5E01: ${balanceInfo.remainCoins}, \u94B1\u5305: ${balanceInfo.remainMoney})\uFF0C\u8DF3\u8FC7`);
+            continue;
+          }
+          localActiveTasksByKey.set(key, currentLocal + 1);
+          const localLimitText = localLimit > 0 ? `\uFF0C\u672C\u5730\u5E76\u53D1: ${currentLocal + 1}/${localLimit}` : "";
+          addLog(`[RunningHub Key\u6C60] \u6210\u529F\u5206\u914D Key #${i + 1} (${maskedKey})\uFF0C\u5B98\u65B9\u53EF\u7528\u5E76\u53D1: ${queueInfo.available}/${queueInfo.limit}${localLimitText} (\u8FD0\u884C\u4E2D: ${queueInfo.runningCount}\uFF0C\u7C7B\u578B: ${queueInfo.apiKeyType})\uFF0CRH\u5E01: ${balanceInfo.remainCoins}`);
+          removeWaiter();
+          let released = false;
+          const releaseKey = () => {
+            if (!released) {
+              released = true;
+              if (taskId && taskLeaseRegistry.has(taskId)) {
+                const set = taskLeaseRegistry.get(taskId);
+                set.delete(releaseKey);
+                if (set.size === 0) taskLeaseRegistry.delete(taskId);
+              }
+              const cur = localActiveTasksByKey.get(key) || 1;
+              if (cur <= 1) {
+                localActiveTasksByKey.delete(key);
+              } else {
+                localActiveTasksByKey.set(key, cur - 1);
+              }
+              balanceCache.delete(key);
+              addLog(`[RunningHub Key\u6C60] \u4EFB\u52A1\u7ED3\u675F\uFF0C\u91CA\u653E Key #${i + 1} (${maskedKey})\uFF0C\u672C\u5730\u5269\u4F59\u8FD0\u884C: ${localActiveTasksByKey.get(key) || 0}`);
+              notifyNextKeyWaiter();
+              keyReleaseEventTarget.dispatchEvent(new Event("keyReleased"));
+            }
+          };
+          if (taskId) {
+            if (!taskLeaseRegistry.has(taskId)) {
+              taskLeaseRegistry.set(taskId, /* @__PURE__ */ new Set());
+            }
+            taskLeaseRegistry.get(taskId).add(releaseKey);
+          }
+          return {
+            acquired: true,
+            lease: {
+              apiKey: key,
+              releaseKey,
+              remainCoins: balanceInfo.remainCoins,
+              remainMoney: balanceInfo.remainMoney,
+              queueInfo
+            }
+          };
+        }
+        return {
+          acquired: false,
+          busyCount,
+          zeroBalanceCount,
+          invalidKeyErrors
+        };
+      });
+      if (leaseResult.cancelled) {
+        removeWaiter();
+        throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      }
+      if (leaseResult.acquired) {
+        notifyNextKeyWaiter();
+        return leaseResult.lease;
+      }
+      if (leaseResult.invalidKeyErrors && leaseResult.invalidKeyErrors.length === keys.length) {
+        removeWaiter();
+        const firstErr = leaseResult.invalidKeyErrors[0]?.error || "API Key \u6821\u9A8C\u5931\u8D25";
+        throw new Error(`RunningHub API Key \u9274\u6743\u5931\u8D25 (${firstErr})\uFF0C\u8BF7\u68C0\u67E5\u8BBE\u7F6E\u4E2D\u7684 API Key\uFF01`);
+      }
+      if (leaseResult.busyCount === 0 && (leaseResult.zeroBalanceCount > 0 || leaseResult.invalidKeyErrors && leaseResult.invalidKeyErrors.length > 0)) {
+        removeWaiter();
+        if (leaseResult.zeroBalanceCount > 0) {
+          throw new Error(`\u914D\u7F6E\u7684\u5168\u90E8\u53EF\u7528 RunningHub API Key \u7684 RH\u5E01/\u94B1\u5305\u4F59\u989D\u5747\u5C0F\u4E8E\u7B49\u4E8E0\uFF0C\u8BF7\u5145\u503C\u540E\u91CD\u8BD5\uFF01`);
+        } else {
+          const firstErr = leaseResult.invalidKeyErrors?.[0]?.error || "API Key \u6821\u9A8C\u5931\u8D25";
+          throw new Error(`RunningHub API Key \u9274\u6743\u5931\u8D25 (${firstErr})\uFF0C\u8BF7\u68C0\u67E5\u8BBE\u7F6E\u4E2D\u7684 API Key\uFF01`);
+        }
+      }
+      addLog(`[RunningHub Key\u6C60] \u6240\u6709\u53EF\u7528 Key \u5F53\u524D\u53EF\u7528\u5E76\u53D1\u6EE1\u8F7D (${leaseResult.busyCount || 0} \u4E2A\u6B63\u5728\u8FD0\u884C)\uFF0C\u961F\u9996\u4EFB\u52A1\u8FDB\u5165\u7B49\u5F85\u6392\u961F...`);
+      await new Promise((resolve) => {
+        waiterObj.resolve = resolve;
+        waiterObj.timer = setTimeout(() => {
+          waiterObj.resolve = null;
+          resolve();
+        }, 2e3);
+      });
+    }
+  } finally {
+    removeWaiter();
+  }
+}
+async function getUsableRunningHubKeyForUpload() {
+  const keys = getAllRunningHubApiKeys();
+  if (keys.length === 0) {
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 RunningHub API Key");
+  }
+  for (const key of keys) {
+    const bal = await checkKeyHasBalance(key);
+    if (bal.isValid && bal.hasBalance) {
+      return key;
+    }
+  }
+  return keys[0];
+}
+var balanceCache, BALANCE_CACHE_TTL_MS, keyReleaseEventTarget, localActiveTasksByKey, taskLeaseRegistry, acquireKeyLock, fifoKeyWaiters;
+var init_runninghubKeyManager = __esm({
+  "utils/runninghubKeyManager.js"() {
+    init_utils();
+    init_config();
+    balanceCache = /* @__PURE__ */ new Map();
+    BALANCE_CACHE_TTL_MS = 30 * 1e3;
+    keyReleaseEventTarget = new EventTarget();
+    localActiveTasksByKey = /* @__PURE__ */ new Map();
+    taskLeaseRegistry = /* @__PURE__ */ new Map();
+    acquireKeyLock = Promise.resolve();
+    fifoKeyWaiters = [];
+    try {
+      if (eventSource20 && typeof eventSource20.on === "function") {
+        eventSource20.on("st_chatu8_task_cancelled", (data) => {
+          if (data && data.taskId) {
+            releaseTaskKeyLeases(data.taskId);

@@ -1,0 +1,130 @@
+  let list = [];
+  if (Array.isArray(apiKeySetting)) {
+    list = apiKeySetting.map((k) => String(k).trim()).filter(Boolean);
+  } else {
+    list = String(apiKeySetting).split(/[\r\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 0);
+  }
+  return Array.from(new Set(list));
+}
+function getAllRunningHubApiKeys() {
+  const settings3 = extension_settings46[extensionName] || {};
+  const rawKey = settings3.runninghub_apiKey || document.getElementById("runninghub_apiKey")?.value;
+  return parseRunningHubApiKeys(rawKey);
+}
+async function fetchRunningHubAccountStatus(apiKey) {
+  if (!apiKey) throw new Error("API Key \u4E0D\u80FD\u4E3A\u7A7A");
+  const res = await fetch("https://www.runninghub.ai/uc/openapi/accountStatus", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      apikey: apiKey
+    })
+  });
+  const data = await res.json();
+  return data;
+}
+async function fetchRunningHubQueueStatus(apiKey) {
+  if (!apiKey) throw new Error("API Key \u4E0D\u80FD\u4E3A\u7A7A");
+  const res = await fetch("https://www.runninghub.ai/openapi/v2/queue/status", {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`
+    }
+  });
+  const data = await res.json();
+  return data;
+}
+async function checkKeyQueueAvailability(apiKey) {
+  try {
+    const data = await fetchRunningHubQueueStatus(apiKey);
+    if (data && data.code === 0 && data.data) {
+      const limit = Math.max(1, parseInt(data.data.concurrentLimit ?? 1, 10));
+      const runningCount = Math.max(0, parseInt(data.data.runningCount ?? 0, 10));
+      const queuedCount = Math.max(0, parseInt(data.data.queuedCount ?? 0, 10));
+      const available = limit - runningCount;
+      return {
+        isValid: true,
+        isAvailable: available >= 1,
+        available,
+        limit,
+        runningCount,
+        queuedCount,
+        apiKeyType: data.data.apiKeyType || "NORMAL",
+        raw: data.data
+      };
+    } else {
+      return {
+        isValid: false,
+        isAvailable: false,
+        available: 0,
+        limit: 1,
+        runningCount: 0,
+        queuedCount: 0,
+        apiKeyType: "UNKNOWN",
+        raw: data,
+        errorCode: data?.code ?? data?.errorCode ?? null,
+        error: data?.msg || data?.errorMessage || "\u67E5\u8BE2\u961F\u5217\u72B6\u6001\u5931\u8D25"
+      };
+    }
+  } catch (err) {
+    return {
+      isValid: false,
+      isAvailable: false,
+      available: 0,
+      limit: 1,
+      runningCount: 0,
+      queuedCount: 0,
+      apiKeyType: "UNKNOWN",
+      raw: null,
+      errorCode: -1,
+      error: err.message || "\u7F51\u7EDC\u8FDE\u63A5\u5F02\u5E38"
+    };
+  }
+}
+async function checkKeyHasBalance(apiKey, forceRefresh = false) {
+  const now = Date.now();
+  const cached = balanceCache.get(apiKey);
+  if (!forceRefresh && cached && now - cached.timestamp < BALANCE_CACHE_TTL_MS) {
+    return cached;
+  }
+  try {
+    const data = await fetchRunningHubAccountStatus(apiKey);
+    if (data && data.code === 0 && data.data) {
+      const remainCoins = parseFloat(data.data.remainCoins ?? 0);
+      const remainMoney = parseFloat(data.data.remainMoney ?? 0);
+      const hasBalance = remainCoins > 0 || remainMoney > 0;
+      const result = {
+        isValid: true,
+        hasBalance,
+        remainCoins,
+        remainMoney,
+        raw: data.data,
+        timestamp: now
+      };
+      balanceCache.set(apiKey, result);
+      return result;
+    } else {
+      const result = {
+        isValid: false,
+        hasBalance: false,
+        remainCoins: 0,
+        remainMoney: 0,
+        raw: data,
+        errorCode: data?.code ?? data?.errorCode ?? null,
+        timestamp: now,
+        error: data?.msg || data?.errorMessage || "\u67E5\u8BE2\u8D26\u6237\u72B6\u6001\u5931\u8D25"
+      };
+      balanceCache.set(apiKey, result);
+      return result;
+    }
+  } catch (err) {
+    return {
+      isValid: false,
+      hasBalance: false,
+      remainCoins: 0,
+      remainMoney: 0,
+      errorCode: -1,
+      error: err.message || "\u7F51\u7EDC\u8FDE\u63A5\u5F02\u5E38",

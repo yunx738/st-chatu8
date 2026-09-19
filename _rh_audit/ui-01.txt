@@ -1,0 +1,130 @@
+          toastr.info("\u5DF2\u53D6\u6D88\u4EA4\u6362");
+        } else if (pendingRunningHubSwap.type === "img" && pendingRunningHubSwap.index !== null) {
+          const srcIdx = pendingRunningHubSwap.index;
+          pendingRunningHubSwap = { type: null, index: null };
+          swapRunningHubMedia("img", srcIdx, i);
+        } else {
+          pendingRunningHubSwap = { type: "img", index: i };
+          renderRunningHubImageCards();
+          toastr.info(`\u5DF2\u9009\u4E2D <Picture ${i}>\uFF0C\u8BF7\u70B9\u51FB\u53E6\u4E00\u4E2A\u5361\u7247\u7684\u3010\u4E92\u6362\u3011\u6309\u94AE\uFF08\u518D\u6B21\u70B9\u51FB\u81EA\u8EAB\u53EF\u53D6\u6D88\uFF09`);
+        }
+      });
+      $(`#runninghub_img_ctrl_${i}`).on("change", (e) => {
+        const val = e.target.value;
+        settings3[`runninghub_img_ctrl_${i}`] = val;
+        saveSettingsDebounced53();
+        const hasMedia = Boolean(sessionUploadedMedia.img?.[i] || sessionUploadedMedia.imgFiles?.[i]);
+        const $overlay = $(`#runninghub_img_mute_overlay_${i}`);
+        const $img = $(`#runninghub_preview_img_${i}`);
+        if (val === "mute" && hasMedia) {
+          $img.addClass("st-chatu8-preview-muted");
+          $overlay.css("display", "flex");
+        } else {
+          $img.removeClass("st-chatu8-preview-muted");
+          $overlay.hide();
+        }
+      });
+      $(`#runninghub_img_desc_${i}`).on("input", (e) => {
+        settings3[`runninghub_img_desc_${i}`] = e.target.value;
+        saveSettingsDebounced53();
+      });
+      $(`#runninghub_upload_btn_img_${i}`).on("click", () => {
+        $(`#runninghub_file_img_${i}`).click();
+      });
+      $(`#runninghub_asset_btn_img_${i}`).on("click", () => {
+        openVideoAssetPicker({
+          type: "img",
+          title: `<i class="fa-solid fa-photo-film" style="color: #60a5fa;"></i> \u4E3A &lt;Picture ${i}&gt; \u9009\u62E9\u89C6\u9891\u56FE\u7247\u8D44\u4EA7`,
+          onSelect: async (asset, imageBlob, dataUrl) => {
+            const preview = document.getElementById(`runninghub_preview_img_${i}`);
+            if (preview && dataUrl) {
+              preview.src = dataUrl;
+            }
+            $(`#runninghub_img_preview_box_${i}`).css("display", "flex");
+            if (settings3[`runninghub_img_ctrl_${i}`] === "mute") {
+              $(`#runninghub_preview_img_${i}`).addClass("st-chatu8-preview-muted");
+              $(`#runninghub_img_mute_overlay_${i}`).css("display", "flex");
+            } else {
+              $(`#runninghub_preview_img_${i}`).removeClass("st-chatu8-preview-muted");
+              $(`#runninghub_img_mute_overlay_${i}`).hide();
+            }
+            const stat = document.getElementById(`runninghub_stat_img_${i}`);
+            if (stat) {
+              stat.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> \u4E0A\u4F20\u4E2D...`;
+              stat.style.color = "#ff9800";
+            }
+            try {
+              const assetFileName = `${(asset.name || `asset_${i}`).replace(/[\\/:*?"<>|]/g, "_")}.png`;
+              const file = new File([imageBlob], assetFileName, { type: imageBlob.type || "image/png" });
+              if (!sessionUploadedMedia.imgFiles) sessionUploadedMedia.imgFiles = {};
+              sessionUploadedMedia.imgFiles[i] = file;
+              const fileName = await uploadRunningHubMedia(file, "img", i);
+              sessionUploadedMedia.img[i] = fileName;
+              if (stat) {
+                stat.innerHTML = `<i class="fa-solid fa-check-circle"></i> \u5DF2\u5C31\u7EEA: ${fileName}`;
+                stat.style.color = "#4caf50";
+              }
+              $(`#runninghub_clear_img_${i}`).show();
+              const currentDescVal = $(`#runninghub_img_desc_${i}`).val() || "";
+              if (!currentDescVal.trim() && asset.description && asset.description.trim()) {
+                const newDesc = asset.description.trim();
+                $(`#runninghub_img_desc_${i}`).val(newDesc);
+                settings3[`runninghub_img_desc_${i}`] = newDesc;
+              }
+              saveSettingsDebounced53();
+              if (window.toastr) toastr.success(`\u56FE\u7247 ${i} \u5DF2\u4ECE\u89C6\u9891\u8D44\u4EA7\u8F7D\u5165\uFF01`);
+            } catch (err) {
+              if (stat) {
+                stat.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> \u8F7D\u5165\u5931\u8D25: ${err.message}`;
+                stat.style.color = "#f44336";
+              }
+              if (window.toastr) toastr.error(`\u56FE\u7247 ${i} \u8F7D\u5165\u5931\u8D25: ${err.message}`);
+            }
+          }
+        });
+      });
+      $(`#runninghub_clear_img_${i}`).on("click", () => {
+        delete sessionUploadedMedia.img[i];
+        if (sessionUploadedMedia.imgFiles) delete sessionUploadedMedia.imgFiles[i];
+        $(`#runninghub_file_img_${i}`).val("");
+        $(`#runninghub_img_preview_box_${i}`).hide();
+        $(`#runninghub_preview_img_${i}`).removeClass("st-chatu8-preview-muted").removeAttr("src");
+        $(`#runninghub_img_mute_overlay_${i}`).hide();
+        $(`#runninghub_stat_img_${i}`).html("\u672A\u4E0A\u4F20\u53C2\u8003\u56FE\uFF08\u81EA\u52A8\u4F7F\u7528\u9ED8\u8BA4\u515C\u5E95\uFF09").css("color", "var(--st-chatu8-text-secondary, #888)");
+        $(`#runninghub_clear_img_${i}`).hide();
+        if (window.toastr) toastr.info(`\u5DF2\u6E05\u9664\u56FE\u7247 ${i}`);
+      });
+      $(`#runninghub_file_img_${i}`).on("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!sessionUploadedMedia.imgFiles) sessionUploadedMedia.imgFiles = {};
+        sessionUploadedMedia.imgFiles[i] = file;
+        const preview = document.getElementById(`runninghub_preview_img_${i}`);
+        if (preview) {
+          preview.src = URL.createObjectURL(file);
+        }
+        $(`#runninghub_img_preview_box_${i}`).css("display", "flex");
+        if (settings3[`runninghub_img_ctrl_${i}`] === "mute") {
+          $(`#runninghub_preview_img_${i}`).addClass("st-chatu8-preview-muted");
+          $(`#runninghub_img_mute_overlay_${i}`).css("display", "flex");
+        } else {
+          $(`#runninghub_preview_img_${i}`).removeClass("st-chatu8-preview-muted");
+          $(`#runninghub_img_mute_overlay_${i}`).hide();
+        }
+        const stat = document.getElementById(`runninghub_stat_img_${i}`);
+        if (stat) {
+          stat.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> \u4E0A\u4F20\u4E2D...`;
+          stat.style.color = "#ff9800";
+        }
+        try {
+          const fileName = await uploadRunningHubMedia(file, "img", i);
+          sessionUploadedMedia.img[i] = fileName;
+          if (stat) {
+            stat.innerHTML = `<i class="fa-solid fa-check-circle"></i> \u5DF2\u5C31\u7EEA: ${fileName}`;
+            stat.style.color = "#4caf50";
+          }
+          $(`#runninghub_clear_img_${i}`).show();
+          if (window.toastr) toastr.success(`\u56FE\u7247 ${i} \u4E0A\u4F20\u6210\u529F\uFF01`);
+        } catch (err) {
+          if (stat) {
+            stat.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> \u4E0A\u4F20\u5931\u8D25: ${err.message}`;

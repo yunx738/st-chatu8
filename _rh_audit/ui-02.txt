@@ -1,0 +1,105 @@
+            stat.style.color = "#f44336";
+          }
+          if (window.toastr) toastr.error(`\u56FE\u7247 ${i} \u4E0A\u4F20\u5931\u8D25: ${err.message}`);
+        }
+      });
+    }
+  }
+  renderRunningHubImageCards();
+  function renderRunningHubAudioCards() {
+    const audContainer = document.getElementById("runninghub_aud_container");
+    if (!audContainer) return;
+    audContainer.innerHTML = "";
+    const hasPending = pendingRunningHubSwap.type === "aud" && pendingRunningHubSwap.index !== null;
+    for (let i = 1; i <= 3; i++) {
+      const card = document.createElement("div");
+      card.className = "st-chatu8-card";
+      const savedCtrl = settings3[`runninghub_aud_ctrl_${i}`] || "bypass";
+      const savedDesc = settings3[`runninghub_aud_desc_${i}`] || "";
+      const currentSessionFile = sessionUploadedMedia.aud?.[i] || "";
+      const isCurrentSelected = pendingRunningHubSwap.type === "aud" && pendingRunningHubSwap.index === i;
+      let borderCss = "border: 1px solid var(--st-chatu8-border-color, rgba(255,255,255,0.1));";
+      let bgCss = "background: var(--st-chatu8-bg-secondary, rgba(255,255,255,0.03));";
+      if (isCurrentSelected) {
+        borderCss = "border: 2px solid #f59e0b; box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);";
+        bgCss = "background: rgba(245, 158, 11, 0.08);";
+      } else if (hasPending) {
+        borderCss = "border: 1px dashed rgba(236, 72, 153, 0.5);";
+      }
+      card.style.cssText = `padding: 12px; ${borderCss} border-radius: 8px; ${bgCss} display: flex; flex-direction: column; gap: 10px; transition: all 0.2s ease;`;
+      card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                    <span style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+                        <i class="fa-solid fa-music" style="color: #ec4899;"></i> &lt;Audio ${i}&gt;
+                    </span>
+                    <div class="st-chatu8-media-header-controls">
+                        <button type="button" class="st-chatu8-btn runninghub-swap-btn st-chatu8-swap-btn ${isCurrentSelected ? "is-active" : ""}" data-type="aud" data-index="${i}" title="${isCurrentSelected ? "\u70B9\u51FB\u53D6\u6D88\u4EA4\u6362" : hasPending ? "\u70B9\u51FB\u4E0E\u9009\u4E2D\u7684\u9879\u4E92\u6362" : "\u70B9\u51FB\u9009\u62E9\u8981\u4EA4\u6362\u7684\u5361\u7247"}">
+                            ${isCurrentSelected ? '<i class="fa-solid fa-xmark"></i> \u53D6\u6D88' : hasPending ? '<i class="fa-solid fa-arrow-right-arrow-left"></i> \u4E92\u6362' : '<i class="fa-solid fa-arrow-right-arrow-left"></i> \u4EA4\u6362'}
+                        </button>
+                        <select id="runninghub_aud_ctrl_${i}" class="st-chatu8-select st-chatu8-ctrl-select">
+                            <option value="open" ${savedCtrl === "open" ? "selected" : ""}>\u5F00\u542F</option>
+                            <option value="bypass" ${savedCtrl === "bypass" ? "selected" : ""}>\u8DF3\u8FC7 (Bypass)</option>
+                            <option value="mute" ${savedCtrl === "mute" ? "selected" : ""}>\u505C\u7528 (Mute)</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div id="runninghub_stat_aud_${i}" style="font-size: 11px; color: ${currentSessionFile ? "#4caf50" : "var(--st-chatu8-text-secondary, #888)"}; word-break: break-all;">
+                        ${currentSessionFile ? `<i class="fa-solid fa-check-circle"></i> \u5DF2\u5C31\u7EEA: ${currentSessionFile}` : "\u672A\u4E0A\u4F20\u53C2\u8003\u97F3\u9891\uFF08\u81EA\u52A8\u4F7F\u7528\u9ED8\u8BA4\u515C\u5E95\uFF09"}
+                    </div>
+                    <div class="st-chatu8-media-preview-box" id="runninghub_aud_preview_box_${i}" style="display: ${currentSessionFile || sessionUploadedMedia.audFiles?.[i] ? "flex" : "none"}; width: 100%;">
+                        <audio controls id="runninghub_preview_aud_${i}" class="${savedCtrl === "mute" && (currentSessionFile || sessionUploadedMedia.audFiles?.[i]) ? "st-chatu8-preview-muted" : ""}" style="width: 100%; margin-top: 4px;"></audio>
+                        <div class="st-chatu8-media-mute-overlay" id="runninghub_aud_mute_overlay_${i}" style="display: ${savedCtrl === "mute" && (currentSessionFile || sessionUploadedMedia.audFiles?.[i]) ? "flex" : "none"};">
+                            <div class="st-chatu8-mute-badge">
+                                <i class="fa-solid fa-ban" style="color: #ef4444;"></i>
+                                <span>\u5DF2\u505C\u7528</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <input type="file" id="runninghub_file_aud_${i}" accept="audio/*" style="display: none;">
+                        <button type="button" class="st-chatu8-btn primary" id="runninghub_upload_btn_aud_${i}" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;" title="\u4ECE\u7535\u8111\u672C\u5730\u4E0A\u4F20\u97F3\u9891"><i class="fa-solid fa-upload"></i> \u672C\u5730\u4E0A\u4F20</button>
+                        <button type="button" class="st-chatu8-btn" id="runninghub_asset_btn_aud_${i}" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;" title="\u4ECE\u89C6\u9891\u8D44\u4EA7\u5E93\u4E2D\u9009\u53D6\u97F3\u9891\u7D20\u6750"><i class="fa-solid fa-music"></i> \u89C6\u9891\u8D44\u4EA7</button>
+                        <button type="button" class="st-chatu8-btn danger" id="runninghub_clear_aud_${i}" style="padding: 6px 12px; font-size: 12px; ${currentSessionFile ? "" : "display: none;"}" title="\u6E05\u7A7A"><i class="fa-solid fa-trash"></i> \u6E05\u7A7A</button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="runninghub_aud_desc_${i}" style="font-size: 11px; color: var(--st-chatu8-text-secondary, #888);"><i class="fa-solid fa-pen-to-square"></i> \u97F3\u9891\u7B80\u4ECB (\u968F\u97F3\u9891\u4F20\u7ED9LLM)</label>
+                        <textarea id="runninghub_aud_desc_${i}" class="st-chatu8-textarea" rows="2" placeholder="\u8F93\u5165\u97F3\u9891 ${i} \u7B80\u4ECB\uFF08\u5982\u914D\u4E50/\u60C5\u7EEA/\u8282\u594F/\u5BF9\u767D\uFF09..." style="font-size: 12px; padding: 4px 8px; resize: vertical; min-height: 38px;">${escapeHtml6(savedDesc)}</textarea>
+                    </div>
+                </div>
+            `;
+      audContainer.appendChild(card);
+      if (sessionUploadedMedia.audFiles?.[i]) {
+        const previewEl = document.getElementById(`runninghub_preview_aud_${i}`);
+        if (previewEl) {
+          previewEl.src = URL.createObjectURL(sessionUploadedMedia.audFiles[i]);
+        }
+      }
+      $(`.runninghub-swap-btn[data-type="aud"][data-index="${i}"]`).on("click", (e) => {
+        e.stopPropagation();
+        if (pendingRunningHubSwap.type === "aud" && pendingRunningHubSwap.index === i) {
+          pendingRunningHubSwap = { type: null, index: null };
+          renderRunningHubAudioCards();
+          toastr.info("\u5DF2\u53D6\u6D88\u4EA4\u6362");
+        } else if (pendingRunningHubSwap.type === "aud" && pendingRunningHubSwap.index !== null) {
+          const srcIdx = pendingRunningHubSwap.index;
+          pendingRunningHubSwap = { type: null, index: null };
+          swapRunningHubMedia("aud", srcIdx, i);
+        } else {
+          pendingRunningHubSwap = { type: "aud", index: i };
+          renderRunningHubAudioCards();
+          toastr.info(`\u5DF2\u9009\u4E2D <Audio ${i}>\uFF0C\u8BF7\u70B9\u51FB\u53E6\u4E00\u4E2A\u5361\u7247\u7684\u3010\u4E92\u6362\u3011\u6309\u94AE\uFF08\u518D\u6B21\u70B9\u51FB\u81EA\u8EAB\u53EF\u53D6\u6D88\uFF09`);
+        }
+      });
+      $(`#runninghub_aud_ctrl_${i}`).on("change", (e) => {
+        const val = e.target.value;
+        settings3[`runninghub_aud_ctrl_${i}`] = val;
+        saveSettingsDebounced53();
+        const hasMedia = Boolean(sessionUploadedMedia.aud?.[i] || sessionUploadedMedia.audFiles?.[i]);
+        const $overlay = $(`#runninghub_aud_mute_overlay_${i}`);
+        const $aud = $(`#runninghub_preview_aud_${i}`);
+        if (val === "mute" && hasMedia) {
+          $aud.addClass("st-chatu8-preview-muted");
+          $overlay.css("display", "flex");
+        } else {
+          $aud

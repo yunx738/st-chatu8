@@ -1,0 +1,130 @@
+      timestamp: now
+    };
+  }
+}
+function invalidateBalanceCache(apiKey) {
+  if (apiKey) {
+    balanceCache.delete(apiKey);
+  } else {
+    balanceCache.clear();
+  }
+}
+function withAcquireLock(fn) {
+  const nextLock = acquireKeyLock.then(async () => {
+    try {
+      return await fn();
+    } catch (e) {
+      throw e;
+    }
+  });
+  acquireKeyLock = nextLock.catch(() => {
+  });
+  return nextLock;
+}
+function notifyNextKeyWaiter() {
+  for (let i = 0; i < fifoKeyWaiters.length; i++) {
+    const waiter = fifoKeyWaiters[i];
+    if (waiter && typeof waiter.resolve === "function") {
+      if (waiter.timer) {
+        clearTimeout(waiter.timer);
+        waiter.timer = null;
+      }
+      const res = waiter.resolve;
+      waiter.resolve = null;
+      res();
+      break;
+    }
+  }
+}
+async function acquireRunningHubKey({
+  apiKeys,
+  abortSignal,
+  taskId,
+  isTaskCancelled,
+  priority = "normal",
+  timeoutMs = 10 * 60 * 1e3
+} = {}) {
+  const keys = apiKeys && apiKeys.length > 0 ? apiKeys : getAllRunningHubApiKeys();
+  if (keys.length === 0) {
+    throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199\u81F3\u5C11\u4E00\u4E2A\u6709\u6548\u7684 RunningHub API Key");
+  }
+  const startTime = Date.now();
+  const waiterObj = {
+    taskId,
+    priority,
+    resolve: null,
+    timer: null
+  };
+  if (priority === "high") {
+    fifoKeyWaiters.unshift(waiterObj);
+  } else {
+    fifoKeyWaiters.push(waiterObj);
+  }
+  const removeWaiter = () => {
+    if (waiterObj.timer) {
+      clearTimeout(waiterObj.timer);
+      waiterObj.timer = null;
+    }
+    waiterObj.resolve = null;
+    const idx = fifoKeyWaiters.indexOf(waiterObj);
+    if (idx !== -1) {
+      fifoKeyWaiters.splice(idx, 1);
+      notifyNextKeyWaiter();
+    }
+  };
+  if (abortSignal) {
+    abortSignal.addEventListener("abort", removeWaiter, { once: true });
+  }
+  try {
+    while (true) {
+      if (abortSignal?.aborted || typeof isTaskCancelled === "function" && isTaskCancelled()) {
+        removeWaiter();
+        throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
+      }
+      if (Date.now() - startTime > timeoutMs) {
+        removeWaiter();
+        throw new Error("\u7B49\u5F85\u53EF\u7528 RunningHub API Key \u8D85\u65F6 (10\u5206\u949F)");
+      }
+      const isHeadOfQueue = fifoKeyWaiters[0] === waiterObj;
+      if (!isHeadOfQueue) {
+        await new Promise((resolve) => {
+          waiterObj.resolve = resolve;
+          waiterObj.timer = setTimeout(() => {
+            waiterObj.resolve = null;
+            resolve();
+          }, 2e3);
+        });
+        continue;
+      }
+      const leaseResult = await withAcquireLock(async () => {
+        if (abortSignal?.aborted || typeof isTaskCancelled === "function" && isTaskCancelled()) {
+          return { cancelled: true };
+        }
+        let busyCount = 0;
+        let zeroBalanceCount = 0;
+        const invalidKeyErrors = [];
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          const maskedKey = key.length > 12 ? `${key.slice(0, 5)}...${key.slice(-4)}` : key;
+          const localLimit = getKeyLocalLimit(key);
+          const currentLocal = getLocalActiveCount(key);
+          if (localLimit > 0 && currentLocal >= localLimit) {
+            busyCount++;
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u5DF2\u8FBE\u672C\u5730\u4E3B\u52A8\u5E76\u53D1\u9650\u5236 (${currentLocal}/${localLimit})\uFF0C\u8DF3\u8FC7`);
+            continue;
+          }
+          const queueInfo = await checkKeyQueueAvailability(key);
+          if (!queueInfo.isValid) {
+            const errText = queueInfo.error || "\u961F\u5217\u72B6\u6001\u67E5\u8BE2\u5931\u8D25";
+            invalidKeyErrors.push({ key, error: errText, code: queueInfo.errorCode });
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u9274\u6743\u6216\u961F\u5217\u72B6\u6001\u5F02\u5E38 (${errText})\uFF0C\u8DF3\u8FC7`);
+            continue;
+          }
+          const effectiveLimit = localLimit > 0 ? Math.min(localLimit, queueInfo.limit) : queueInfo.limit;
+          if (currentLocal >= effectiveLimit) {
+            busyCount++;
+            const limitDesc = localLimit > 0 ? `\u672C\u5730\u9650\u5236: ${localLimit}\u8DEF, \u5B98\u65B9\u4E0A\u9650: ${queueInfo.limit}\u8DEF` : `\u5B98\u65B9\u4E0A\u9650: ${queueInfo.limit}\u8DEF`;
+            addLog(`[RunningHub Key\u6C60] Key #${i + 1} (${maskedKey}) \u5E76\u53D1\u5DF2\u8FBE\u4E0A\u9650 (${currentLocal}/${effectiveLimit}\uFF0C${limitDesc})\uFF0C\u8FDB\u5165\u7B49\u5F85\u6392\u961F`);
+            continue;
+          }
+          if (!queueInfo.isAvailable || queueInfo.available <= currentLocal) {

@@ -1,0 +1,130 @@
+    const isZip = outputUrl.toLowerCase().includes(".zip") || fileBlob.type.includes("zip") || fileBlob.type.includes("octet-stream");
+    if (isZip) {
+      notify("\u6B63\u5728\u89E3\u538B ZIP \u538B\u7F29\u5305\u63D0\u53D6\u4E3B\u89C6\u9891...");
+      const extracted = await extractLargestMediaFromZip2(arrayBuffer);
+      finalMediaData = extracted.dataUrl;
+      isVideo = extracted.isVideo;
+      mediaFormat = extracted.mimeType || "video/mp4";
+    } else {
+      let processedBlob = fileBlob;
+      if (mediaFormat === "video/mp4" || outputUrl.match(/\.mp4($|\?)/i)) {
+        try {
+          processedBlob = await fixMp4Faststart(fileBlob);
+        } catch (faststartErr) {
+          console.warn("[RunningHubVideo] \u6D4B\u8BD5\u76F4\u8FDE MP4 faststart \u5904\u7406\u8DF3\u8FC7/\u5931\u8D25:", faststartErr);
+        }
+      }
+      finalMediaData = URL.createObjectURL(processedBlob);
+    }
+    const rhSuccessParts = [];
+    if (rhTaskCostTime != null) rhSuccessParts.push(`RH\u8017\u65F6: ${rhTaskCostTime}s`);
+    if (rhConsumeCoins != null) rhSuccessParts.push(`\u6D88\u8017\u70B9\u6570: ${rhConsumeCoins}`);
+    const rhSuccessText = rhSuccessParts.length > 0 ? ` [${rhSuccessParts.join(", ")}]` : "";
+    notify(`\u89C6\u9891\u6D4B\u8BD5\u751F\u6210\u6210\u529F\uFF01${rhSuccessText}`, false);
+    if (apiKey) {
+      invalidateBalanceCache(apiKey);
+      if (rhConsumeCoins != null) {
+        recordKeyConsumption(apiKey, rhConsumeCoins);
+      }
+    }
+    return {
+      videoUrl: finalMediaData,
+      originalUrl: outputUrl,
+      isVideo,
+      format: mediaFormat,
+      seedUsed,
+      taskCostTime: rhTaskCostTime,
+      consumeCoins: rhConsumeCoins
+    };
+  } finally {
+    if (keyLease && typeof keyLease.releaseKey === "function") {
+      keyLease.releaseKey();
+    }
+  }
+}
+var UPLOAD_CACHE_EXPIRY_MS;
+var init_runninghubVideo = __esm({
+  "utils/runninghubVideo.js"() {
+    init_utils();
+    init_config();
+    init_configDatabase();
+    init_database();
+    init_genParams();
+    init_taskQueue();
+    init_imageGenStats();
+    init_workers();
+    init_runninghubKeyManager();
+    init_runninghub();
+    UPLOAD_CACHE_EXPIRY_MS = 24 * 60 * 60 * 1e3;
+  }
+});
+
+// utils/comfyuiVideo.js
+var comfyuiVideo_exports = {};
+__export(comfyuiVideo_exports, {
+  abortComfyUIVideoTask: () => abortComfyUIVideoTask,
+  buildComfyUIRefVideoWorkflow: () => buildComfyUIRefVideoWorkflow,
+  createBlankPngBlob: () => createBlankPngBlob2,
+  createSilentWavBlob: () => createSilentWavBlob2,
+  executeComfyUIVideoDirectTest: () => executeComfyUIVideoDirectTest,
+  formatComfyUIApiError: () => formatComfyUIApiError,
+  generateComfyUIRefVideo: () => generateComfyUIRefVideo,
+  generateComfyUIVideo: () => generateComfyUIVideo,
+  isAssetManifestPrompt: () => isAssetManifestPrompt2,
+  isValidMediaFileId: () => isValidMediaFileId2,
+  parseAssetManifest: () => parseAssetManifest2,
+  registerActiveComfyUIVideoTask: () => registerActiveComfyUIVideoTask,
+  unregisterActiveComfyUIVideoTask: () => unregisterActiveComfyUIVideoTask,
+  uploadBlankAudioToComfyUIWithCache: () => uploadBlankAudioToComfyUIWithCache,
+  uploadBlankPngToComfyUIWithCache: () => uploadBlankPngToComfyUIWithCache,
+  uploadImageBlobToComfyUIWithCache: () => uploadImageBlobToComfyUIWithCache,
+  uploadMediaToComfyUIWithCache: () => uploadMediaToComfyUIWithCache
+});
+
+
+function registerActiveComfyUIVideoTask(taskId, context) {
+  if (!taskId) return;
+  activeComfyUIVideoTasks.set(taskId, context);
+}
+function unregisterActiveComfyUIVideoTask(taskId) {
+  if (!taskId) return;
+  activeComfyUIVideoTasks.delete(taskId);
+}
+async function abortComfyUIVideoTask(taskId) {
+  const taskCtx = activeComfyUIVideoTasks.get(taskId);
+  if (!taskCtx) return;
+  console.log(`[ComfyUIVideo] \u89E6\u53D1\u4EFB\u52A1\u4E2D\u65AD: ${taskId}`);
+  if (taskCtx.abortController && !taskCtx.abortController.signal.aborted) {
+    try {
+      taskCtx.abortController.abort();
+    } catch (e) {
+      console.warn("[ComfyUIVideo] abortController.abort \u5931\u8D25:", e);
+    }
+  }
+  if (taskCtx.url) {
+    try {
+      await fetch(`${taskCtx.url}/api/interrupt`, { method: "POST" });
+      console.log("[ComfyUIVideo] \u5DF2\u5411 ComfyUI \u53D1\u9001 /api/interrupt");
+    } catch (e) {
+      console.warn("[ComfyUIVideo] \u53D1\u9001 /api/interrupt \u5931\u8D25:", e);
+    }
+  }
+  activeComfyUIVideoTasks.delete(taskId);
+}
+function formatComfyUIApiError(errorObj, defaultMsg = "ComfyUI \u8BF7\u6C42\u5931\u8D25") {
+  if (!errorObj) return defaultMsg;
+  if (typeof errorObj === "string") {
+    try {
+      errorObj = JSON.parse(errorObj);
+    } catch (_) {
+      return errorObj;
+    }
+  }
+  if (typeof errorObj !== "object") return String(errorObj);
+  if (errorObj.error) {
+    const err = errorObj.error;
+    const errType = err.type || "";
+    const errMsg = err.message || err.details || "";
+    const nodeErrors = errorObj.node_errors;
+    let nodeErrSummary = "";
+    if (nodeErrors && typeof nodeErrors === "object") {
