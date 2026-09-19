@@ -9,13 +9,14 @@ import { prepareRunningHubNodeInfo } from '../runninghub-workflow.mjs';
 const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 const callers = [
   ['image', 'async function generateRunningHubImage(', '\nasync function runninghubgenerate('],
-  ['reference-video', 'async function generateRunningHubRefVideo(', '\nasync function executeRunningHubVideoDirectTest(']
+  ['reference-video', 'async function generateRunningHubRefVideo(', '\nasync function executeRunningHubVideoDirectTest('],
+  ['direct-test', 'async function executeRunningHubVideoDirectTest(', '\nvar UPLOAD_CACHE_EXPIRY_MS;']
 ];
 function lifecycle(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'actual production caller must exist');
   const fn = source.slice(a, b);
-  const lease = fn.indexOf('  let keyLease = null;');
+  const lease = fn.indexOf(start.includes('DirectTest') ? '  const candidateKeys =' : '  let keyLease = null;');
   assert.ok(lease >= 0, 'production key lease / cleanup block must exist');
   return fn.slice(lease, fn.lastIndexOf('}'));
 }
@@ -53,6 +54,12 @@ async function runProduction(code, scenario = {}) {
     rawJson: JSON.stringify(raw), targetWorkerJson: JSON.stringify(raw), promptObj: runtime,
     workflowId: '1234567890123456789', targetWorkflowId: '1234567890123456789', taskId: 'local-fixture-task',
     settings3: { runninghub_send_fixed_inputs: scenario.fixed || false },
+    specifiedApiKey: null, specifiedApiKeys: undefined, prompt2: 'fixture prompt',
+    workflowJson: JSON.stringify(raw), uploadedImages: {}, uploadedAudios: {}, genSettings: {},
+    abortSignal: { get aborted() { return !active; } },
+    notify: message => logs.push(message), isAssetManifestPrompt: () => false,
+    stripChineseAnnotations: async text => text,
+    buildRunningHubRefVideoWorkflow: () => ({ promptObj: runtime, seedUsed: 42 }),
     taskQueue: { isTaskInQueue: () => active, updateStatus() {}, completeTask: (...x) => completions.push(x) },
     acquireRunningHubKey: async () => { leases++; return { apiKey: `do-not-log-fixture-key-${leases}`, releaseKey: () => { releases++; } }; },
     prepareRunningHubNodeInfo: options => prepareRunningHubNodeInfo({ ...options, fetchImpl: fetchMock, timeoutMs: 20 }),
@@ -66,8 +73,8 @@ async function runProduction(code, scenario = {}) {
   return { calls, completions, logs, leases, releases, creates, error };
 }
 
-test('both production callers await cloud validation and settings UI is connected', () => {
-  assert.equal((source.match(/const nodeInfoList = await prepareRunningHubNodeInfo\(/g) || []).length, 2);
+test('all three production callers await cloud validation and settings UI is connected', () => {
+  assert.equal((source.match(/const nodeInfoList = await prepareRunningHubNodeInfo\(/g) || []).length, 3);
   assert.ok(source.includes('bindRunningHubOverrideControl(settingsModal, settings3, saveSettingsDebounced53);'));
   assert.ok(!source.includes('function extractNodeInfoListFromWorkflow('));
   assert.ok(!source.includes('RH_LITERAL_OVERRIDES_FIX_V1'));
@@ -97,11 +104,11 @@ for (const [name, start, end] of callers) {
       assert.equal(r.creates, 0); assert.equal(r.error.code, errorCode);
       assert.equal(r.releases, 1); assert.equal(r.leases, 1);
       if (scenario === 'cancel') assert.equal(r.completions.length, 0);
-      else assert.ok(r.completions.some(x => x[1] === false));
+      else if (name !== 'direct-test') assert.ok(r.completions.some(x => x[1] === false));
       assert.ok(!r.error.message.includes('do-not-log-fixture-key'));
     });
   }
-  test(`${name}: queue retry revalidates with the second key`, async () => {
+  if (name !== 'direct-test') test(`${name}: queue retry revalidates with the second key`, async () => {
     const r = await runProduction(code, { queueRetry: true, rejectSecondKey: true });
     assert.equal(r.creates, 1); assert.equal(r.leases, 2); assert.equal(r.releases, 2);
     assert.equal(r.error.code, 'RH_WORKFLOW_MISMATCH');
