@@ -1,0 +1,38 @@
+name: RunningHub transport validation
+on:
+  push:
+    branches: [fix/rh-complete-workflow-transport]
+    paths:
+      - '.github/workflows/rh-transport-build.yml'
+      - 'tools/rh-transport/**'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build patch and run regression tests when present
+        run: |
+          mkdir -p transport-artifact
+          cp index.js transport-artifact/index.upstream.js
+          cp LICENSE transport-artifact/LICENSE
+          if [ -f tools/rh-transport/apply.mjs ] && [ -f tools/rh-transport/test.mjs ]; then
+            node --test tools/rh-transport/test.mjs
+            node tools/rh-transport/apply.mjs index.js
+            cp index.js transport-artifact/index.js
+            cp index.js /tmp/rh-index-check.mjs
+            node --check /tmp/rh-index-check.mjs
+            git diff -- index.js > transport-artifact/index.patch
+            cp -r tools/rh-transport transport-artifact/source
+          fi
+          git rev-parse HEAD > transport-artifact/SOURCE-COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rh-transport-verified-source
+          path: transport-artifact/
+          retention-days: 7
