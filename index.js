@@ -1,3 +1,4 @@
+import { prepareRunningHubNodeInfo, bindRunningHubOverrideControl } from "./runninghub-workflow.mjs";
 /**
  * ====================================================
  * st-chatu8 (智绘姬) - SillyTavern 文生图扩展
@@ -47651,43 +47652,6 @@ function buildRunningHubWorkflow(rawJson, promptText, negativeText, genSettings)
   }
   return { promptObj, seedUsed: seed };
 }
-function extractNodeInfoListFromWorkflow(rawJson, promptObj) {
-  const nodeInfoList = [];
-  let rawObj = null;
-  try {
-    rawObj = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson;
-  } catch (e) {
-    console.warn("[RunningHub v2] \u89E3\u6790\u539F\u59CB\u5DE5\u4F5C\u6D41 JSON \u5931\u8D25\uFF0C\u65E0\u6CD5\u8FDB\u884C diff \u6BD4\u5BF9:", e);
-  }
-  if (rawObj && typeof rawObj === "object" && promptObj && typeof promptObj === "object") {
-    for (const [nodeId, modifiedNode] of Object.entries(promptObj)) {
-      if (!modifiedNode || typeof modifiedNode !== "object") continue;
-      const rawNode = rawObj[nodeId];
-      if (!rawNode) {
-        console.warn(`[RunningHub v2] \u539F\u59CB\u6A21\u677F\u4E2D\u4E0D\u5B58\u5728\u8282\u70B9 ${nodeId}\uFF0C\u8DF3\u8FC7\u8BE5\u8986\u76D6\u9879\u4EE5\u9632\u4E91\u7AEF 803 \u62A5\u9519`);
-        continue;
-      }
-      const modifiedInputs = modifiedNode.inputs || {};
-      const rawInputs = rawNode?.inputs || {};
-      for (const [fieldName, modVal] of Object.entries(modifiedInputs)) {
-        if (Array.isArray(modVal) && modVal.length === 2 && (typeof modVal[0] === "string" || typeof modVal[0] === "number")) {
-          continue;
-        }
-        const rawVal = rawInputs[fieldName];
-        const isPlaceholder = typeof rawVal === "string" && /%[^%]+%/.test(rawVal);
-        const isDifferent = JSON.stringify(modVal) !== JSON.stringify(rawVal);
-        if (isPlaceholder || isDifferent || rawVal === void 0) {
-          nodeInfoList.push({
-            nodeId: String(nodeId),
-            fieldName,
-            fieldValue: modVal
-          });
-        }
-      }
-    }
-  }
-  return nodeInfoList;
-}
 async function generateRunningHubImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt }) {
   clearLog();
   let taskType = TaskType.RUNNINGHUB_IMG;
@@ -47897,7 +47861,11 @@ async function generateRunningHubImage({ prompt: link, width: Xwidth, height: Xh
       });
       apiKey = keyLease.apiKey;
       taskQueue.updateStatus(taskId, "running");
-      const nodeInfoList = extractNodeInfoListFromWorkflow(rawJson, promptObj);
+      const nodeInfoList = await prepareRunningHubNodeInfo({
+        rawJson: rawJson, promptObj, workflowId: workflowId, apiKey,
+        includeLiterals: settings3.runninghub_send_fixed_inputs,
+        isTaskCancelled: () => !taskQueue.isTaskInQueue(taskId)
+      });
       addLog(`[RunningHub v2] \u63D0\u53D6\u5230 ${nodeInfoList.length} \u4E2A\u8986\u76D6\u53C2\u6570: ${nodeInfoList.map((n) => `${n.nodeId}.${n.fieldName}`).join(", ")}`);
       addLog(`[RunningHub v2] \u6B63\u5728\u53D1\u8D77\u4EFB\u52A1\u8BF7\u6C42 (Workflow ID: ${workflowId})...`);
       const payload = {
@@ -48994,7 +48962,11 @@ async function generateRunningHubRefVideo({ prompt: rawPrompt, width: Xwidth, he
       });
       apiKey = keyLease.apiKey;
       taskQueue.updateStatus(taskId, "running");
-      const nodeInfoList = extractNodeInfoListFromWorkflow(targetWorkerJson, promptObj);
+      const nodeInfoList = await prepareRunningHubNodeInfo({
+        rawJson: targetWorkerJson, promptObj, workflowId: targetWorkflowId, apiKey,
+        includeLiterals: settings3.runninghub_send_fixed_inputs,
+        isTaskCancelled: () => !taskQueue.isTaskInQueue(taskId)
+      });
       addLog(`[RunningHubRefVideo v2] \u63D0\u53D6\u5230 ${nodeInfoList.length} \u4E2A\u8986\u76D6\u53C2\u6570: ${nodeInfoList.map((n) => `${n.nodeId}.${n.fieldName}`).join(", ")}`);
       addLog(`[RunningHubRefVideo v2] \u53D1\u8D77\u4EFB\u52A1\u8BF7\u6C42 (Workflow ID: ${targetWorkflowId})...`);
       const payload = {
@@ -49208,7 +49180,11 @@ async function executeRunningHubVideoDirectTest({
       genSettings
     );
     if (abortSignal?.aborted) throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
-    const nodeInfoList = extractNodeInfoListFromWorkflow(workflowJson, promptObj);
+    const nodeInfoList = await prepareRunningHubNodeInfo({
+      rawJson: workflowJson, promptObj, workflowId, apiKey,
+      includeLiterals: settings3.runninghub_send_fixed_inputs,
+      isTaskCancelled: () => abortSignal?.aborted === true
+    });
     notify(`\u6B63\u5728\u5411 RunningHub \u63D0\u4EA4\u4EFB\u52A1 (Workflow ID: ${workflowId}, \u79CD\u5B50: ${seedUsed}, \u8986\u76D6\u8282\u70B9\u6570: ${nodeInfoList.length})...`);
     const payload = {
       nodeInfoList,
@@ -94204,6 +94180,7 @@ function openRunningHubSelectOptionsEditor({ title, settingKey, optionsKey, defa
 }
 function initRunningHubUI(settingsModal) {
   const settings3 = extension_settings80[extensionName];
+  bindRunningHubOverrideControl(settingsModal, settings3, saveSettingsDebounced53);
   if (!settings3.runninghub_uploadedMedia) {
     settings3.runninghub_uploadedMedia = { img: {}, aud: {} };
   }
