@@ -1,0 +1,34 @@
+name: Inspect RunningHub settings
+on:
+  push:
+    branches: [fix/runninghub-cloud-validation]
+    paths: [.github/workflows/rh-audit-ui.yml]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, json
+          s = Path('index.js').read_text(encoding='utf-8')
+          report = []
+          for tag, needle, size in [('ui', 'function initRunningHubUI(', 26000), ('keys', '// utils/runninghubKeyManager.js', 22000), ('direct', 'async function executeRunningHubVideoDirectTest(', 11000)]:
+              a = s.index(needle)
+              text = s[a:a+size]
+              lines = text.splitlines(keepends=True)
+              for n in range(0, len(lines), 130):
+                  name = f'_rh_audit/{tag}-{n//130:02}.txt'
+                  part = ''.join(lines[n:n+130])
+                  Path(name).write_text(part, encoding='utf-8')
+                  report.append({'path': name, 'start': part[:100], 'end': part[-100:]})
+          Path('_rh_audit/more.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add _rh_audit
+          git commit -m 'chore: capture settings and task lifecycle for review'
+          git push origin HEAD:fix/runninghub-cloud-validation
