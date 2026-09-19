@@ -7,30 +7,58 @@ on:
       - 'tools/rh-transport/**'
 permissions:
   contents: read
+concurrency:
+  group: rh-full-transport-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build patch and run regression tests when present
+      - name: Reproduce and test against the reviewed upstream version
+        env:
+          BASE_SHA: 4e1e8f8a6cab1375d39eb806a292516dbb9c43be
         run: |
+          set -euo pipefail
           mkdir -p transport-artifact
-          cp index.js transport-artifact/index.upstream.js
-          cp LICENSE transport-artifact/LICENSE
-          if [ -f tools/rh-transport/apply.mjs ] && [ -f tools/rh-transport/test.mjs ]; then
-            node --test tools/rh-transport/test.mjs
-            node tools/rh-transport/apply.mjs index.js
-            cp index.js transport-artifact/index.js
-            cp index.js /tmp/rh-index-check.mjs
-            node --check /tmp/rh-index-check.mjs
-            git diff -- index.js > transport-artifact/index.patch
-            cp -r tools/rh-transport transport-artifact/source
-          fi
+          git show "$BASE_SHA:index.js" > index.upstream.js
+          node --test tools/rh-transport/test.mjs | tee transport-artifact/test-results.txt
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {applyPatch} from './tools/rh-transport/apply.mjs';
+          const base=fs.readFileSync('index.upstream.js','utf8');
+          const current=fs.readFileSync('index.js','utf8');
+          const built=applyPatch(base);
+          if(current!==base && current!==built) throw new Error('Refusing to overwrite an independently modified bundle.');
+          fs.writeFileSync('index.js',built);
+          NODE
+          cp index.js /tmp/rh-index-check.mjs
+          node --check /tmp/rh-index-check.mjs
+          cp index.js index.upstream.js LICENSE transport-artifact/
+          git diff -- index.js > transport-artifact/index.patch
+          mkdir -p transport-artifact/tools
+          cp -r tools/rh-transport transport-artifact/tools/
           git rev-parse HEAD > transport-artifact/SOURCE-COMMIT.txt
+          sha256sum index.js > transport-artifact/SHA256SUMS.txt
+      - name: Commit tested bundle to this repair branch only
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'fix/rh-complete-workflow-transport'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.js
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix: publish tested full-workflow RunningHub transport'
+            git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: rh-transport-verified-source
