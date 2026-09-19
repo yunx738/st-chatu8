@@ -24,7 +24,8 @@ export function applyPatch(source) {
   const anchor = 'function extractNodeInfoListFromWorkflow(rawJson, promptObj) {';
   if (source.split(anchor).length !== 2) throw new Error('Unsupported source: extractor anchor not unique.');
   const helper = fs.readFileSync(new URL('./transport.mjs', import.meta.url), 'utf8').replace(/^export /gm, '');
-  return source.replace(anchor, MARK + '\n' + helper + '\n' + anchor);
+  const notice = '/* Modified by ChatGPT (OpenAI), 2026-09-19.\n * Purpose: opt-in RunningHub full API workflow transport and response compatibility.\n * Original st-chatu8 authorship and AFPL v9 license are retained; see LICENSE.\n */\n';
+  return notice + source.replace(anchor, MARK + '\n' + helper + '\n' + anchor);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const file = process.argv[2];
